@@ -51,7 +51,7 @@ Only the held-out and zero-shot numbers are headline numbers. Report everything 
 
 On the Mac: `10_prepare_data.sh` → `15_datasource.sh` → `20_fit_dral.sh` → `80_verify_and_push.sh --hf` (pushes the datasets to private HF).
 
-On Lambda: `scripts/lambda_all.sh` (one resumable command; see `LAMBDA_RUNBOOK.md`). Stages:
+On Lambda: `scripts/lambda_all.sh`; on CoreWeave: `scripts/coreweave_all.sh` (see `LAMBDA_RUNBOOK.md`, `COREWEAVE_RUNBOOK.md`). Both run the same resumable stage list in `scripts/run_all.sh`. CoreWeave adds the price prompt, the Docker install (`coreweave_docker.sh`), the /dev/shm and disk checks, and caches next to the repo. The GPU layout follows the GPU count and size (`scripts/_common.sh`). The budget guard counts the machine's wall-clock time, and the dry run scales the training slots to the money left (`train.common.slot_scale`). Stages:
 1. setup, then pull the private HF datasets;
 2. `00_check_env.sh`, then `72_gguf_check.sh`;
 3. `35_dry_run.sh` (times OPSD, SFT and GRPO with the judge, then plans the steps);

@@ -48,6 +48,6 @@ def test_git_index_has_no_licensed_files():
         return
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
     banned = re.compile(r"(\.owl$|\.ttl$|\.rdf$|\.pdf$|sct2_|der2_|\.sqlite$|\.gguf$|\.safetensors$|^data/|^outputs/)")
-    allowed = {"docs/figures/oa_rlaif_pipeline.pdf"}
-    hits = [f for f in tracked.splitlines() if banned.search(f) and f not in allowed]
+    allowed = re.compile(r"^docs/figures/oa_rlaif_[a-z_]+\.pdf$")  # our own method figures, built from docs/figures/*.tex
+    hits = [f for f in tracked.splitlines() if banned.search(f) and not allowed.match(f)]
     assert not hits, f"licensed or generated files are tracked: {hits[:20]}"

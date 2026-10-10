@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Live dashboard for scripts/lambda_all.sh (standard library only, so it also works before the venv exists).
+"""Live dashboard for scripts/run_all.sh (lambda_all.sh, coreweave_all.sh) (standard library only, so it also works before the venv exists).
 
-Reads outputs/stages/ (written by lambda_all.sh) and outputs/progress.json (written by every training and evaluation
+Reads outputs/stages/ (written by run_all.sh) and outputs/progress.json (written by every training and evaluation
 stage) and prints: the overall bar, the current step and its own bar, elapsed time, ETA, a spend estimate and the
 last log line of the running step.
 
-    python3 scripts/dashboard.py            # one frame (lambda_all.sh redraws it every few seconds)
+    python3 scripts/dashboard.py            # one frame (run_all.sh redraws it every few seconds)
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(os.environ.get("OA_OUT_DIR", "outputs"))
 OUT = OUT if OUT.is_absolute() else ROOT / OUT
 STAGES_DIR = OUT / "stages"
-RATE = float(os.environ.get("OA_GPU_USD_PER_HOUR", "27.16"))
+RATE = float(os.environ.get("OA_GPU_USD_PER_HOUR") or "27.16")
+PLATFORM = os.environ.get("OA_PLATFORM", "Lambda")
 
 # (name, estimated minutes, what happens). Estimates feed the ETA until real progress is known.
 # OA_DASH_PLAN=smoke shows the Mac smoke-test steps instead (scripts/smoke_mac.sh).
@@ -106,12 +107,27 @@ def last_log_line(name: str) -> str:
         return ""
 
 
+def planned_minutes() -> list[tuple[str, float, str]]:
+    """The plan, with the training stages taken from outputs/step_plan.json once the dry run has written it
+    (steps x measured seconds per step, plus ~10 min for start-up and merging)."""
+    plans = read(OUT / "step_plan.json", {}) or {}
+    out = []
+    for name, minutes, what in PLAN:
+        key = {"sdft": "sdft", "grpo": "grpo", "sft": "sft"}.get(name)
+        p = plans.get(key) if key else None
+        if p and p.get("steps") and p.get("seconds_per_step"):
+            minutes = p["steps"] * p["seconds_per_step"] / 60 + 10
+        out.append((name, minutes, what))
+    return out
+
+
 def frame(now: float | None = None) -> str:
     now = now or time.time()
     run_start = float((STAGES_DIR / "run.start").read_text()) if (STAGES_DIR / "run.start").exists() else now
-    total = sum(m for _, m, _ in PLAN)
+    plan = planned_minutes()
+    total = sum(m for _, m, _ in plan)
     done_minutes, current, lines = 0.0, None, []
-    for i, (name, minutes, what) in enumerate(PLAN, 1):
+    for i, (name, minutes, what) in enumerate(plan, 1):
         if (STAGES_DIR / f"{name}.done").exists():
             done_minutes += minutes
             status = "done"
@@ -130,12 +146,12 @@ def frame(now: float | None = None) -> str:
         f, how = stage_fraction(started, minutes, now)
         fraction = (done_minutes + f * minutes) / total
         step_left = (now - started) * (1 - f) / f if f > 0.02 else minutes * 60
-        step_line = (f"STEP {i}/{len(PLAN)}  {name}: {what}\n"
+        step_line = (f"STEP {i}/{len(plan)}  {name}: {what}\n"
                      f"     [{bar(f)}] {f:6.1%}  elapsed {fmt(now - started)}  left ~{fmt(step_left)} ({how})\n"
                      f"     log: {last_log_line(name)}")
     remaining = (1 - fraction) * total * 60
     elapsed = now - run_start
-    head = (f"OA-RLAIF on Lambda · {time.strftime('%H:%M:%S')} · logs in outputs/logs/stage_<step>.log\n\n"
+    head = (f"OA-RLAIF on {PLATFORM} · {time.strftime('%H:%M:%S')} · logs in outputs/logs/stage_<step>.log\n\n"
             f"TOTAL [{bar(fraction, 40)}] {fraction:6.1%}   elapsed {fmt(elapsed)}   ETA ~{fmt(remaining)}"
             f"   GPU spend so far ≈ ${elapsed / 3600 * RATE:,.0f} (stop at $450)\n")
     return head + ("\n" + step_line + "\n" if step_line else "") + "\n" + "\n".join(lines)

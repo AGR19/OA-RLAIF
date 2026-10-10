@@ -69,6 +69,11 @@ grpo:
   dral_temperature: 0.1
   judge_fraction: 1.0                   # share of prompts judged (whole groups); size it to the API quota, see LAMBDA_RUNBOOK
 
+budget_plan:                            # train.common.slot_scale: fit the training slots to the real hourly price
+  fixed_hours: 4.5                      # stages after the dry run that do not train: 3 evaluations + baseline, export,
+                                        # uploads, 3 merges (dashboard estimates, 4xB200 layout)
+  min_slot_scale: 0.05                  # below this (30 min of training in all) the dry run stops and says why
+
 eval:
   max_new_tokens: 256
   temperature: 0.0

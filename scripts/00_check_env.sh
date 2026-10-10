@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# LAMBDA: verify GPUs, CUDA arch (B200 = sm_100), libraries, Docker, data and the local A4B judge weights.
+# GPU box (Lambda or CoreWeave): verify GPUs and their layout, shared memory, libraries, Docker, data and the local
+# A4B judge weights. Any missing item fails the check.
 . "$(dirname "$0")/_common.sh"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv
 $PY - <<'PY'
@@ -10,14 +11,19 @@ print("trl", trl.__version__, "transformers", transformers.__version__, "vllm", 
 from trl.experimental.sdft import SDFTTrainer  # noqa: F401
 print("SDFTTrainer import ok")
 PY
-docker image inspect oa-rlaif-om:latest >/dev/null && echo "docker image ok"
 FAIL=0
+log "GPU layout: train on $TRAIN_GPUS ($NTRAIN processes), vLLM on $VLLM_GPU, A4B judge on $JUDGE_GPU, eval tp $EVAL_TP"
+shm_gb="$(df -Pk /dev/shm | awk 'NR == 2 { print int($2 / 1048576) }')"
+[ "${shm_gb:-0}" -ge 8 ] && echo "ok /dev/shm ${shm_gb} GB" || { echo "/dev/shm is ${shm_gb} GB; need >= 8 (pods: mount an emptyDir with medium: Memory)"; FAIL=1; }
+docker info >/dev/null 2>&1 && echo "ok docker daemon" || { echo "docker daemon not reachable (CoreWeave: scripts/coreweave_docker.sh)"; FAIL=1; }
+docker image inspect oa-rlaif-om:latest >/dev/null 2>&1 && echo "ok docker image" || { echo "MISSING docker image oa-rlaif-om:latest"; FAIL=1; }
 for f in data/sdft/train.jsonl data/grpo/train.jsonl data/eval/heldout_anatomy.jsonl data/raw/anatomy-dataset-2/mouse.owl; do
   [ -s "$f" ] && echo "ok $f" || { echo "MISSING $f"; FAIL=1; }
 done
 ls data/dral/*.npz >/dev/null 2>&1 && echo "dral npz: $(ls data/dral/*.npz | wc -l)" || { echo "MISSING data/dral/*.npz"; FAIL=1; }
 $PY -c "import torch, sys; n = torch.cuda.device_count(); print('gpus', n); sys.exit(0 if n >= 4 else 1)" || { echo "need 4 GPUs"; FAIL=1; }
-$PY -m pytest -q tests/test_harness.py -k docker -p no:cacheprovider || { echo "docker sandbox check failed"; FAIL=1; }
+$PY -m pytest -q -rs tests/test_harness.py -k docker -p no:cacheprovider | tee outputs/logs/check_docker.log || { echo "docker sandbox check failed"; FAIL=1; }
+grep -q "1 passed" outputs/logs/check_docker.log || { echo "docker sandbox test did not pass (skipped or failed)"; FAIL=1; }
 $PY - <<'PY'
 import os
 from huggingface_hub import snapshot_download
@@ -26,8 +32,10 @@ for repo in ("google/gemma-4-E4B-it", os.environ.get("JUDGE_LOCAL_MODEL", "googl
         snapshot_download(repo, local_files_only=True)
         print("weights cached:", repo)
     except Exception:
-        print("MISSING weights:", repo, "(run scripts/lambda_setup.sh)")
+        print("MISSING weights:", repo, "(run the setup script)")
+        open("outputs/logs/check_weights.failed", "w").close()
 PY
+[ -f outputs/logs/check_weights.failed ] && { rm -f outputs/logs/check_weights.failed; FAIL=1; }
 $PY -m oa_rlaif.progress status
 [ "$FAIL" = 0 ] || { echo "environment check FAILED"; exit 1; }
 echo "environment check passed"

@@ -69,8 +69,24 @@ class BudgetGuard:
         self._write()
 
     # ---- reading ---------------------------------------------------------------------------
+    def wallclock_usd(self) -> float:
+        """Cost of the machine since the one-command run first started (outputs/stages/run.start).
+
+        Cloud GPU nodes bill by the hour whether or not a trainer runs: setup, downloads, evaluation and the gaps
+        between stages all count. 0 when no run.start exists (single scripts, the Mac) or OA_WALLCLOCK_BUDGET=0.
+        """
+        start = out_dir() / "stages" / "run.start"
+        if not self.billable or os.environ.get("OA_WALLCLOCK_BUDGET") == "0" or not start.exists():
+            return 0.0
+        try:
+            return max(0.0, time.time() - float(start.read_text().strip())) / 3600 * self.rate_usd_per_hour
+        except ValueError:
+            return 0.0
+
     def gpu_usd(self) -> float:
-        return sum(r["seconds"] / 3600 * r["rate_usd_per_hour"] for r in self._ledger["gpu_runs"].values())
+        """GPU spend: the larger of the per-process ledger and the machine's wall-clock time since the run started."""
+        ledger = sum(r["seconds"] / 3600 * r["rate_usd_per_hour"] for r in self._ledger["gpu_runs"].values())
+        return max(ledger, self.wallclock_usd())
 
     def api_usd(self) -> float:
         return sum(v["usd"] for v in self._ledger["api"].values())

@@ -10,8 +10,9 @@ __pycache__/
 !.env.example
 
 # licensed or generated data never goes to git (Springer textbook, SNOMED/UMLS, raw ontologies)
-data/
-outputs/
+# anchored to the repo root: an unanchored `data/` also matched the source package src/oa_rlaif/data/
+/data/
+/outputs/
 third_party/*
 !third_party/README.md
 !third_party/mini-swe-agent/

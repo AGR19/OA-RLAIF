@@ -17,8 +17,8 @@ import time
 
 from ..budget import BudgetGuard
 from ..paths import ROOT, out_dir
-from .common import (load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download, plan_steps,
-                     out_path, progress_callback, record_dry_run, runtime_kwargs, sdft_paths)
+from .common import (load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download, out_path,
+                     plan_steps, progress_callback, record_dry_run, runtime_kwargs, sdft_paths, slot_scale)
 
 
 def sdft_args(cfg: dict, max_steps: int):
@@ -46,9 +46,12 @@ def plan_sft_steps(cfg: dict, train) -> int:
     rows_per_step = s["per_device_batch"] * s["grad_accum"] * max(1, int(os.environ.get("WORLD_SIZE", "1")))
     opsd = plans.get("sdft", {}).get("steps") or plan_steps(cfg, "sdft", len(train), rows_per_step, s["epochs"])
     measured = (cfg.get("dry_run") or {}).get("sft_seconds_per_step")
-    steps = opsd if not measured else max(1, min(opsd, int(cfg["sft"]["time_budget_hours"] * 3600 * 0.9 / measured)))
+    hours_slot = cfg["sft"]["time_budget_hours"] * slot_scale(cfg)
+    if (out_dir() / "step_plan.json").exists():  # slot_scale may have added the budget plan
+        plans = json.loads((out_dir() / "step_plan.json").read_text())
+    steps = opsd if not measured else max(1, min(opsd, int(hours_slot * 3600 * 0.9 / measured)))
     plans["sft"] = {"stage": "sft", "steps": steps, "opsd_steps": opsd, "seconds_per_step": measured,
-                    "hours_slot": cfg["sft"]["time_budget_hours"]}
+                    "hours_slot": round(hours_slot, 3)}
     (out_dir() / "step_plan.json").write_text(json.dumps(plans, indent=1))
     print(f"[plan] sft: {steps} steps (OPSD runs {opsd})")
     return steps

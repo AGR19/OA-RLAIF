@@ -1,5 +1,7 @@
 # Lambda runbook (4×B200, $500 total, stop at $450)
 
+On CoreWeave, use `COREWEAVE_RUNBOOK.md` and `scripts/coreweave_all.sh` instead (same stages; Docker install, price prompt, any GPU count).
+
 Everything runs on the instance. The GRPO judge (Gemma 4 26B-A4B) is served by a second vLLM server on GPU 3; question generation already ran on the Mac through AI Studio. Each command prints a progress bar with an ETA. `scripts/status.sh` shows the whole pipeline and the $ meter at any time.
 
 ## 0. Before renting (on the Mac — free)

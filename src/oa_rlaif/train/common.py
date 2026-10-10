@@ -52,10 +52,11 @@ def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epo
     if not measured:
         print(f"[plan] {stage}: no dry-run timing; running the full {full} steps (budget guard still applies)")
         return full
-    fits = int(s.get("time_budget_hours", 6.0) * 3600 * 0.9 / measured)
+    hours_slot = s.get("time_budget_hours", 6.0) * slot_scale(cfg)
+    fits = int(hours_slot * 3600 * 0.9 / measured)
     steps = max(1, min(full, fits))
     plan = {"stage": stage, "prompts": prompts, "prompts_per_step": prompts_per_step, "epochs": epochs,
-            "full_steps": full, "seconds_per_step": round(measured, 2), "hours_slot": s.get("time_budget_hours", 6.0),
+            "full_steps": full, "seconds_per_step": round(measured, 2), "hours_slot": round(hours_slot, 3),
             "steps": steps, "epochs_covered": round(steps * prompts_per_step / max(1, prompts), 3)}
     path = out_dir() / "step_plan.json"
     plans = json.loads(path.read_text()) if path.exists() else {}
@@ -63,6 +64,45 @@ def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epo
     path.write_text(json.dumps(plans, indent=1))
     print(f"[plan] {stage}: {steps} of {full} steps ({plan['epochs_covered']} epochs) in ~{steps * measured / 3600:.1f} h")
     return steps
+
+
+def slot_scale(cfg: dict) -> float:
+    """Share of the training time slots (OPSD + GRPO + SFT) that the rest of the budget pays for; 1.0 = full slots.
+
+    Decided once, at the end of the dry run, from the real hourly price (OA_GPU_USD_PER_HOUR):
+        hours left = (stop - spent) / price;  slot_scale = min(1, (hours left - fixed hours) / sum of slots)
+    The fixed hours are the stages that do not train (evaluations, export, uploads; `budget_plan` in train.yaml).
+    At Lambda's 4xB200 price the full slots fit (1.0). On a pricier node the slots shrink so the run still ends
+    with the GGUF, the evaluations and the SFT row inside the budget. Stored in outputs/step_plan.json["budget"],
+    so every later stage uses the same plan. OA_SLOT_SCALE overrides it.
+    """
+    if os.environ.get("OA_SLOT_SCALE"):
+        return float(os.environ["OA_SLOT_SCALE"])
+    path = out_dir() / "step_plan.json"
+    plans = json.loads(path.read_text()) if path.exists() else {}
+    if "budget" in plans:
+        return float(plans["budget"]["slot_scale"])
+    guard = BudgetGuard()
+    if not guard.billable:
+        return 1.0
+    b = cfg.get("budget_plan", {})
+    slots = sum(cfg[k]["time_budget_hours"] for k in ("sdft", "grpo", "sft"))
+    hours_left = (guard.stop_usd - guard.spent()) / guard.rate_usd_per_hour
+    scale = max(0.0, min(1.0, (hours_left - b.get("fixed_hours", 4.5)) / slots))
+    plans["budget"] = {"usd_per_hour": guard.rate_usd_per_hour, "spent_usd": round(guard.spent(), 2),
+                       "stop_usd": guard.stop_usd, "hours_left": round(hours_left, 2),
+                       "fixed_hours": b.get("fixed_hours", 4.5), "slot_hours_full": slots,
+                       "slot_scale": round(scale, 4), "training_hours": round(scale * slots, 2)}
+    if scale < b.get("min_slot_scale", 0.05):
+        raise SystemExit(
+            f"[plan] budget too small: at ${guard.rate_usd_per_hour:.2f}/h, ${guard.stop_usd - guard.spent():.0f} left buys "
+            f"{hours_left:.1f} h, and the evaluations, export and uploads need {b.get('fixed_hours', 4.5)} h. "
+            f"Training would get {scale * slots * 60:.0f} min. Check OA_GPU_USD_PER_HOUR, use fewer GPUs or a cheaper "
+            f"node, or set OA_SLOT_SCALE to force a scale.")
+    path.write_text(json.dumps(plans, indent=1))
+    print(f"[plan] budget: ${guard.rate_usd_per_hour:.2f}/h, {hours_left:.1f} h left -> training slots x{scale:.2f} "
+          f"({scale * slots:.1f} of {slots:.0f} h)")
+    return scale
 
 
 def record_dry_run(**values) -> None:
