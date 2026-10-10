@@ -1,0 +1,48 @@
+\begin{tikzpicture}[x=1cm,y=1cm, font=\sffamily,
+  every node/.style={align=center},
+  box/.style={rounded corners=6pt, line width=0.7pt, minimum height=1.75cm, inner sep=5pt},
+  data/.style={box, fill=dFill, draw=dLine, text=dText},
+  train/.style={box, fill=tFill, draw=tLine, text=tText},
+  check/.style={box, fill=gFill, draw=gLine, text=gText},
+  outp/.style={box, fill=oFill, draw=oLine, text=oText},
+  ar/.style={-{Stealth[length=7pt,width=6pt]}, line width=0.9pt, draw=dLine}]
+
+% row 1: inputs
+\node[data,  minimum width=4.4cm] (raw)  at (2.4,10.2)  {\T{Raw ontologies}{\color{dSub}11 OM families + cyber}};
+\node[data,  minimum width=4.4cm] (src)  at (7.3,10.2)  {\T{OM datasource}{\color{dSub}textbook + 18 surveys, Q\&A}};
+\node[data,  minimum width=4.4cm] (icd)  at (12.2,10.2) {\T{ICD bridge}{\color{dSub}11 $\leftrightarrow$ 10 $\leftrightarrow$ SNOMED}};
+\node[check, minimum width=4.4cm] (ver)  at (17.1,10.2) {\T{Parse verifier}{\color{gSub}OWL API + ELK + B\&H}};
+% row 2: episodes
+\node[data, minimum width=19.1cm] (ep) at (9.75,7.4)
+  {\T{Episode builder}{\color{dSub}prompt $x$ $\cdot$ privileged context $c$ (gold answer) $\cdot$ gold $y$ $\cdot$ leakage-free splits $\cdot$ zero-shot pairs}};
+% row 3: stage 1
+\node[train, minimum width=12.6cm] (s1) at (6.5,4.6)
+  {\T{Stage 1 $\cdot$ OPSD}{\color{tSub}on-policy self-distillation in TRL $\cdot$ knowledge into weights}};
+\node[check, minimum width=5.6cm] (tea) at (16.4,4.6) {\T{Frozen teacher}{\color{gSub}E4B base sees $x$ + gold answer}};
+% row 4: stage 2
+\node[train, minimum width=12.6cm] (s2) at (6.5,1.8)
+  {\T{Stage 2 $\cdot$ GRPO (RLAIF)}{\color{tSub}TRL GRPOTrainer $\cdot$ 8 vLLM rollouts $\cdot$ T = 1.0}};
+\node[check, minimum width=5.6cm] (rw) at (16.4,1.8) {\T{Reward R}{\color{gSub}0.8 (gold + DRAL-OA) + 0.2 A4B judge}};
+% row 5: outputs
+\node[outp, minimum width=5.9cm] (ev)  at (3.15,-1.2) {\T{Held-out eval}{\color{oSub}base $\cdot$ SFT $\cdot$ OPSD $\cdot$ GRPO $\cdot$ DRAL-OA}};
+\node[outp, minimum width=6.3cm] (map) at (9.75,-1.2) {\T{Full mappings}{\color{oSub}Anatomy OAEI row $\cdot$ ICD-11$\leftrightarrow$SNOMED}};
+\node[outp, minimum width=5.9cm] (rel) at (16.35,-1.2) {\T{Release}{\color{oSub}GGUF $\to$ private HF $\cdot$ agent}};
+
+% arrows
+\foreach \n in {raw,src,icd,ver} \draw[ar] (\n.south) -- (\n.south |- ep.north);
+\draw[ar] (6.5,0 |- ep.south) -- (s1.north);
+\draw[ar] (16.4,0 |- ep.south) -- (tea.north);
+\draw[ar] (tea.west) -- (s1.east);
+\draw[ar] (s1.south) -- (s2.north);
+\draw[ar] (rw.west) -- (s2.east);
+\draw[ar] (3.15,0 |- s2.south) -- (ev.north);
+\draw[ar] (9.75,0 |- s2.south) -- (map.north);
+\draw[ar] (s2.south -| 11.6,0) -- (11.6,0.15) -- (16.35,0.15) -- (rel.north);
+
+% legend
+\begin{scope}[shift={(0.2,-3.25)}]
+  \foreach \x/\f/\l/\t in {0/dFill/dLine/Data and build, 4.6/tFill/tLine/Training stage (TRL), 10.2/gFill/gLine/{Check, teacher, reward}, 16.0/oFill/oLine/Outputs}
+    {\draw[fill=\f, draw=\l, rounded corners=2pt, line width=0.6pt] (\x,-0.22) rectangle ++(0.44,0.44);
+     \node[anchor=west, text=dText] at (\x+0.6,0) {\normalsize \t};}
+\end{scope}
+\end{tikzpicture}

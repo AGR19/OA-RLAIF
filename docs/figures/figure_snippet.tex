@@ -8,11 +8,11 @@
   \caption{\textbf{OA-RLAIF.}
   (a)~All supplied ontologies, reference alignments, the ontology-matching datasource and the ICD-11$\leftarrow$ICD-10$\leftarrow$SNOMED~CT bridge
   are verified (OWL API cross-parse, ELK, reference quality checks) and compiled into episodes $(x, c, y^\star)$: a student-visible prompt $x$, privileged context $c$ and gold $y^\star$, with group-level splits and held-out zero-shot pairs.
-  (b)~Stage~1 injects knowledge into the weights by on-policy self-distillation: the LoRA student $\pi_\theta(\cdot|x)$ samples $y$ and is trained
-  towards a frozen copy $\pi_{\theta_0}(\cdot|x,c)$ that sees $c$; no context is needed at inference.
+  (b)~Stage~1 injects knowledge into the weights by on-policy self-distillation (OPSD): the LoRA student $\pi_\theta(\cdot|x)$ samples $y$ and is trained
+  towards a frozen copy $\pi_{\theta_0}(\cdot|x,c)$ whose privileged context $c$ contains the ground-truth answer; no context is needed at inference.
   (c)~Stage~2 runs GRPO with $R=0.8\,R_{\mathrm{task}}+0.2\,J/10$, where $R_{\mathrm{task}}$ combines the gold match and the DRAL-OA contrastive reward (Eq.~1)
   over a node2vec$\oplus$FastText mapping layer, and $J$ is an A4B judge score.
-  (d)~At inference the model selects a target or NONE per retrieved candidate set, producing full SSSOM/OAEI alignments.}
+  (d)~At inference the model selects a target or NONE per retrieved candidate set, producing full SSSOM/OAEI alignments, including ICD-11$\leftrightarrow$SNOMED~CT; evaluation compares the base, OPSD and GRPO models (held-out, zero-shot, ICD bridge recovery) with DRAL-OA.}
   \label{fig:oa-rlaif}
 \end{figure*}
 % Vector option B: \resizebox{\textwidth}{!}{\input{figures/oa_rlaif_pipeline_body.tex}}
