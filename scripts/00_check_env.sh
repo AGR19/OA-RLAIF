@@ -11,8 +11,13 @@ from trl.experimental.sdft import SDFTTrainer  # noqa: F401
 print("SDFTTrainer import ok")
 PY
 docker image inspect oa-rlaif-om:latest >/dev/null && echo "docker image ok"
-for f in data/sdft/train.jsonl data/grpo/train.jsonl; do [ -s "$f" ] && echo "ok $f ($(wc -l < "$f") rows)" || echo "MISSING $f"; done
-ls data/dral/*.npz >/dev/null 2>&1 && echo "dral npz: $(ls data/dral/*.npz | wc -l)" || echo "MISSING data/dral/*.npz"
+FAIL=0
+for f in data/sdft/train.jsonl data/grpo/train.jsonl data/eval/heldout_anatomy.jsonl data/raw/anatomy-dataset-2/mouse.owl; do
+  [ -s "$f" ] && echo "ok $f" || { echo "MISSING $f"; FAIL=1; }
+done
+ls data/dral/*.npz >/dev/null 2>&1 && echo "dral npz: $(ls data/dral/*.npz | wc -l)" || { echo "MISSING data/dral/*.npz"; FAIL=1; }
+$PY -c "import torch, sys; n = torch.cuda.device_count(); print('gpus', n); sys.exit(0 if n >= 4 else 1)" || { echo "need 4 GPUs"; FAIL=1; }
+$PY -m pytest -q tests/test_harness.py -k docker -p no:cacheprovider || { echo "docker sandbox check failed"; FAIL=1; }
 $PY - <<'PY'
 import os
 from huggingface_hub import snapshot_download
@@ -24,3 +29,5 @@ for repo in ("google/gemma-4-E4B-it", os.environ.get("JUDGE_LOCAL_MODEL", "googl
         print("MISSING weights:", repo, "(run scripts/lambda_setup.sh)")
 PY
 $PY -m oa_rlaif.progress status
+[ "$FAIL" = 0 ] || { echo "environment check FAILED"; exit 1; }
+echo "environment check passed"

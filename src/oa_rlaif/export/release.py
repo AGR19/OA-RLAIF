@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from ..train.common import load_config, load_model
@@ -37,7 +38,8 @@ def gguf(merged: Path, out: Path, quant: str = "Q4_K_M") -> Path:
     out.mkdir(parents=True, exist_ok=True)
     f16 = out / "oa-rlaif-e4b-f16.gguf"
     final = out / f"oa-rlaif-e4b-{quant}.gguf"
-    subprocess.run(["python", str(llama / "convert_hf_to_gguf.py"), str(merged), "--outfile", str(f16), "--outtype", "f16"], check=True)
+    subprocess.run([sys.executable, str(llama / "convert_hf_to_gguf.py"), str(merged), "--outfile", str(f16), "--outtype", "f16"],
+                   check=True)
     quantize = next((p for p in [llama / "build/bin/llama-quantize", llama / "llama-quantize"] if p.exists()), None)
     if quantize is None:
         raise SystemExit("llama-quantize not built; run `cmake -B build && cmake --build build -j` in LLAMA_CPP_DIR")

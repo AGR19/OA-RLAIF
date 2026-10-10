@@ -45,18 +45,37 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 
 Copy `outputs/` back to the persistent filesystem before terminating.
 
-## One command for the whole run
-After `lambda_setup.sh`, `00_check_env.sh` and `35_dry_run.sh`, run:
+## One command (start here)
+On a fresh Lambda 4×B200 instance:
 
 ```bash
-scripts/run_lambda.sh
+git clone https://github.com/AGR19/OA-RLAIF.git && cd OA-RLAIF   # private repo: sign in with a GitHub token
+scripts/lambda_all.sh       # 1st run: installs everything, then asks for the Hugging Face login
+.venv/bin/hf auth login     # the account that owns the private datasets (gonibeed)
+scripts/lambda_all.sh       # 2nd run: data -> checks -> GGUF check -> dry run -> train -> eval -> GGUF -> push
 ```
 
-It runs every stage in order and stops at the first failure or at the budget stop:
-baseline → SDFT → eval → GRPO (local A4B judge) → eval + full mappings → export (merge, f16 GGUF, Q4_K_M GGUF, Ollama Modelfile).
+`scripts/lambda_all.sh` runs these stages in order:
+1. setup: uv, pinned wheels, Gemma 4 E4B and 26B-A4B weights, Docker sandbox, llama.cpp.
+2. data: pull the private HF datasets.
+3. check_env: 4 GPUs, libraries, data present, the Docker agent test. **Fails hard** if anything is missing.
+4. gguf_check: converts the *base* model to GGUF, so an export problem shows before 12 h of training.
+5. dry_run.
+6. baseline.
+7. SDFT, then merge.
+8. eval.
+9. GRPO with the local A4B judge, then merge.
+10. eval + full Anatomy alignment.
+11. export: GGUF Q4_K_M + Modelfile.
+12. push: private HF `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo`, and the dataset `oa-rlaif-results`.
 
-It does not push anything. Afterwards:
-1. Review `outputs/eval/`.
-2. With the OK, run `scripts/80_verify_and_push.sh --models` (private HF).
-3. Copy the GGUF to the Mac.
-4. **Terminate the instance** in the Lambda console. Billing continues until you do.
+Resume after a failure:
+- Each stage writes `outputs/stages/<name>.done`.
+- After a failure, fix the cause and run the same command again; finished stages are skipped.
+- To redo a stage, delete its `.done` file.
+
+The budget guard stops every billable stage at $450. Watch from a second shell with `scripts/status.sh --live`.
+
+**When it prints DONE, terminate the instance in the Lambda console.** Billing continues until you do.
+
+The GGUF is the final model: base E4B + SDFT + GRPO (DRAL-OA reward + A4B judge, the RLAIF part), merged and quantized.
