@@ -46,36 +46,39 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 Copy `outputs/` back to the persistent filesystem before terminating.
 
 ## One command (start here)
+Before you start:
+1. Create a GitHub token (read access to `AGR19/OA-RLAIF`) at github.com/settings/tokens.
+2. Create a Hugging Face token **with write access** at huggingface.co/settings/tokens. Write access is needed for the final GGUF push.
+
 On a fresh Lambda 4×B200 instance:
 
 ```bash
-git clone https://github.com/AGR19/OA-RLAIF.git && cd OA-RLAIF   # private repo: sign in with a GitHub token
-scripts/lambda_all.sh       # 1st run: installs everything, then asks for the Hugging Face login
-.venv/bin/hf auth login     # the account that owns the private datasets (gonibeed)
-scripts/lambda_all.sh       # 2nd run: data -> checks -> GGUF check -> dry run -> train -> eval -> GGUF -> push
+tmux new -s run                       # keeps the run alive if your SSH connection drops (reattach: tmux attach -t run)
+git clone https://github.com/AGR19/OA-RLAIF.git && cd OA-RLAIF    # username AGR19, password = the GitHub token
+scripts/lambda_all.sh                 # asks once for the Hugging Face token, then runs everything
 ```
 
-`scripts/lambda_all.sh` runs these stages in order:
-1. setup: uv, pinned wheels, Gemma 4 E4B and 26B-A4B weights, Docker sandbox, llama.cpp.
-2. data: pull the private HF datasets.
-3. check_env: 4 GPUs, libraries, data present, the Docker agent test. **Fails hard** if anything is missing.
-4. gguf_check: converts the *base* model to GGUF, so an export problem shows before 12 h of training.
-5. dry_run.
-6. baseline.
-7. SDFT, then merge.
-8. eval.
-9. GRPO with the local A4B judge, then merge.
-10. eval + full Anatomy alignment.
-11. export: GGUF Q4_K_M + Modelfile.
-12. push: private HF `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo`, and the dataset `oa-rlaif-results`.
+The terminal shows a live dashboard: the total progress bar, the current step (e.g. "STEP 7/12 sdft") with its own bar, elapsed time, ETA, GPU spend so far and the latest log line. Each step's full output is in `outputs/logs/stage_<step>.log`.
 
-Resume after a failure:
-- Each stage writes `outputs/stages/<name>.done`.
-- After a failure, fix the cause and run the same command again; finished stages are skipped.
-- To redo a stage, delete its `.done` file.
+| # | Step | What happens | Est. |
+|---|---|---|---|
+| 1 | setup | packages, Gemma 4 E4B + 26B-A4B judge weights, Docker sandbox, llama.cpp | 25 m |
+| 2 | data | download the private datasets | 5 m |
+| 3 | check_env | 4 GPUs, libraries, data, Docker agent test. **Stops here if anything is wrong** | 5 m |
+| 4 | gguf_check | convert the base model to GGUF (proves export works before training) | 15 m |
+| 5 | dry_run | time SDFT and GRPO with the judge; plan step counts that fit the budget | 35 m |
+| 6 | baseline | base E4B: held-out sets + agent episodes | 45 m |
+| 7 | sdft | Stage 1 on-policy self-distillation, then merge | ~5.5 h |
+| 8 | eval_sdft | SDFT model: held-out sets + agent episodes | 1 h |
+| 9 | grpo | Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), then merge | ~5.5 h |
+| 10 | eval_grpo | held-out, zero-shot, full Anatomy alignment (OAEI row), agent episodes | 1.5 h |
+| 11 | export | GGUF Q4_K_M + Ollama Modelfile (base + SDFT + GRPO in one file) | 30 m |
+| 12 | push | private HF: `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo`, dataset `oa-rlaif-results` | 15 m |
 
-The budget guard stops every billable stage at $450. Watch from a second shell with `scripts/status.sh --live`.
+The total is about 17 h and at most $450 (the budget guard stops every step there). Steps 3–5 are the safety checks: a problem shows within the first hour (about $30).
 
-**When it prints DONE, terminate the instance in the Lambda console.** Billing continues until you do.
+**If a step fails**, the dashboard marks it ✖ and prints the end of its log. Fix the cause, then run `scripts/lambda_all.sh` again; finished steps are skipped.
 
-The GGUF is the final model: base E4B + SDFT + GRPO (DRAL-OA reward + A4B judge, the RLAIF part), merged and quantized.
+**When it prints DONE**, your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-gguf` (private). **Terminate the instance** in the Lambda console; billing continues until you do.
+
+Optional: `RUN_SFT_ARM=1 scripts/lambda_all.sh` adds the plain-SFT comparison model (about 3 more GPU hours, ~$80). This can exceed the $450 stop.
