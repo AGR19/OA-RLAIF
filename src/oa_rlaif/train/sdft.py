@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 
 from ..budget import BudgetGuard
 from ..paths import ROOT, out_dir
-from .common import (load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download,
-                     progress_callback, sdft_paths)
+from .common import (load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download, plan_steps,
+                     progress_callback, record_dry_run, sdft_paths)
 
 
 def sdft_args(cfg: dict, max_steps: int):
@@ -74,7 +75,10 @@ def main() -> int:
     guard.check("sdft")
     train_path, _ = sdft_paths()
     train = load_jsonl_dataset(train_path)
-    max_steps = args.max_steps if args.max_steps is not None else cfg["sdft"]["max_steps"]
+    s = cfg["sdft"]
+    rows_per_step = s["per_device_batch"] * s["grad_accum"] * max(1, int(os.environ.get("WORLD_SIZE", "1")))
+    max_steps = (args.max_steps if args.max_steps is not None
+                 else plan_steps(cfg, "sdft", len(train), rows_per_step, s["epochs"]))
     if args.mode == "sft":
         run_sft(cfg, train, max_steps, guard)
         return 0
@@ -90,9 +94,8 @@ def main() -> int:
         steps = trainer.state.global_step
         seconds = time.time() - started
         rows_per_step = cfg["sdft"]["per_device_batch"] * cfg["sdft"]["grad_accum"] * trainer.accelerator.num_processes
-        (out_dir() / "dry_run.json").write_text(json.dumps({
-            "sdft_seconds_per_step": seconds / max(1, steps), "sdft_rows_per_step": rows_per_step,
-            "sdft_train_rows": len(train)}, indent=1))
+        record_dry_run(sdft_seconds_per_step=seconds / max(1, steps), sdft_rows_per_step=rows_per_step,
+                       sdft_train_rows=len(train))
         return 0
     trainer.save_model(str(ROOT / cfg["sdft"]["output_dir"] / "final"))
     return 0

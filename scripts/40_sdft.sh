@@ -7,4 +7,5 @@ budget_gate sdft
 MODEL="$(.venv/bin/python -c "from oa_rlaif.train.common import load_config; print(load_config()['model']['id'])")"
 vllm_up "$MODEL"; trap vllm_down EXIT
 CUDA_VISIBLE_DEVICES=0,1,2 .venv/bin/accelerate launch --num_processes 3 -m oa_rlaif.train.sdft "$@" 2>&1 | tee outputs/logs/sdft.log
-$PY -m oa_rlaif.export.release merge --adapter outputs/checkpoints/sdft/final --out outputs/merged/sdft
+MODE=sdft; case " $* " in *" --mode sft "*) MODE=sft ;; esac
+$PY -m oa_rlaif.export.release merge --adapter "outputs/checkpoints/$MODE/final" --out "outputs/merged/$MODE"

@@ -21,6 +21,43 @@ def load_config() -> dict:
     return cfg
 
 
+def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epochs: float) -> int:
+    """Optimizer steps for a stage: the configured max_steps, else min(full epochs, steps that fit the time slot).
+
+    The time slot (`time_budget_hours`) uses the seconds per step measured by scripts/35_dry_run.sh on this machine,
+    with a 10% margin for evaluation, checkpointing and merging. The plan is written to outputs/step_plan.json.
+    """
+    import math
+
+    s = cfg[stage]
+    if s.get("max_steps", -1) and s["max_steps"] > 0:
+        return int(s["max_steps"])
+    full = math.ceil(prompts / max(1e-9, prompts_per_step) * epochs)
+    measured = (cfg.get("dry_run") or {}).get(f"{stage}_seconds_per_step")
+    if not measured:
+        print(f"[plan] {stage}: no dry-run timing; running the full {full} steps (budget guard still applies)")
+        return full
+    fits = int(s.get("time_budget_hours", 6.0) * 3600 * 0.9 / measured)
+    steps = max(1, min(full, fits))
+    plan = {"stage": stage, "prompts": prompts, "prompts_per_step": prompts_per_step, "epochs": epochs,
+            "full_steps": full, "seconds_per_step": round(measured, 2), "hours_slot": s.get("time_budget_hours", 6.0),
+            "steps": steps, "epochs_covered": round(steps * prompts_per_step / max(1, prompts), 3)}
+    path = out_dir() / "step_plan.json"
+    plans = json.loads(path.read_text()) if path.exists() else {}
+    plans[stage] = plan
+    path.write_text(json.dumps(plans, indent=1))
+    print(f"[plan] {stage}: {steps} of {full} steps ({plan['epochs_covered']} epochs) in ~{steps * measured / 3600:.1f} h")
+    return steps
+
+
+def record_dry_run(**values) -> None:
+    """Merge throughput measurements into outputs/dry_run.json (SDFT and GRPO write separately)."""
+    path = out_dir() / "dry_run.json"
+    data = json.loads(path.read_text()) if path.exists() else {}
+    data.update(values)
+    path.write_text(json.dumps(data, indent=1))
+
+
 def offline_after_download() -> None:
     """Everything runs locally once weights are cached (only the A4B judge API goes out)."""
     os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -20,7 +22,8 @@ from ..budget import BudgetGuard
 from ..paths import ROOT, data_dir, out_dir
 from ..reward.combined import RECENT, make_reward_functions
 from ..reward.dral_reward import DralScorer
-from .common import grpo_paths, load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download, progress_callback
+from .common import (grpo_paths, load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download,
+                     plan_steps, progress_callback, record_dry_run)
 
 
 def hacking_monitor(dump_dir: Path, every: int):
@@ -57,6 +60,7 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--no-judge", action="store_true", help="skip the A4B API (dry runs)")
     parser.add_argument("--init", default=None, help="merged SDFT checkpoint directory")
+    parser.add_argument("--dry-run", action="store_true", help="measure seconds per step into outputs/dry_run.json")
     args = parser.parse_args()
     offline_after_download()
     cfg = load_config()
@@ -76,10 +80,13 @@ def main() -> int:
         print(json.dumps({"judge_model": judge.model, "judge_fraction": judge.fraction, "expected_judge_calls": calls,
                           "judge_rpm_per_process": judge.rpm}))
     reward_funcs, weights = make_reward_functions(scorer=scorer, judge=judge)
+    world = max(1, int(os.environ.get("WORLD_SIZE", "1")))
+    prompts_per_step = g["per_device_batch"] * g["grad_accum"] * world / g["num_generations"]
+    max_steps = args.max_steps if args.max_steps is not None else plan_steps(cfg, "grpo", len(train), prompts_per_step, 1)
     config = GRPOConfig(
         output_dir=str(ROOT / g["output_dir"]), learning_rate=g["learning_rate"],
         per_device_train_batch_size=g["per_device_batch"], gradient_accumulation_steps=g["grad_accum"],
-        max_steps=args.max_steps if args.max_steps is not None else g["max_steps"], num_train_epochs=1,
+        max_steps=max_steps, num_train_epochs=1,
         bf16=True, gradient_checkpointing=True, logging_steps=g["logging_steps"], save_steps=g["save_steps"],
         save_total_limit=3, report_to=["tensorboard"], num_generations=g["num_generations"],
         temperature=g["temperature"], top_p=g["top_p"], max_completion_length=g["max_completion_length"],
@@ -91,7 +98,13 @@ def main() -> int:
     callbacks = progress_callback("grpo", guard) + [hacking_monitor(out_dir() / "grpo_samples", g["sample_dump_every"])]
     trainer = GRPOTrainer(model=model, reward_funcs=reward_funcs, args=config, train_dataset=train,
                           processing_class=tokenizer, peft_config=lora_config(cfg), callbacks=callbacks)
+    started = time.time()
     trainer.train()
+    if args.dry_run:
+        record_dry_run(grpo_seconds_per_step=(time.time() - started) / max(1, trainer.state.global_step),
+                       grpo_prompts_per_step=prompts_per_step, grpo_train_prompts=len(train),
+                       grpo_judge=judge is not None)
+        return 0
     trainer.save_model(str(ROOT / g["output_dir"] / "final"))
     if judge is not None:
         print(json.dumps({"judge_fallbacks": judge.fallbacks, "spent": guard.summary()}))

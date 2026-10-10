@@ -15,6 +15,7 @@
 #   baseline     base E4B on all held-out sets
 #   sdft         Stage 1 on-policy self-distillation, then merge -> outputs/merged/sdft
 #   eval_sdft    held-out evaluation of the SDFT model + the same model as a mini-SWE-agent (Docker)
+#   sft_arm      OPTIONAL (RUN_SFT_ARM=1): plain SFT comparison model + its evaluation (adds ~3 GPU h)
 #   grpo         Stage 2 GRPO (DRAL-OA reward + local A4B judge), then merge -> outputs/merged/grpo
 #   eval_grpo    held-out + zero-shot evaluation, full Anatomy alignment (OAEI row), mini-SWE-agent run
 #   export       merged GRPO model -> GGUF Q4_K_M + Ollama Modelfile
@@ -51,6 +52,10 @@ stage dry_run    scripts/35_dry_run.sh
 stage baseline   scripts/30_baseline.sh
 stage sdft       scripts/40_sdft.sh
 stage eval_sdft  scripts/50_eval.sh sdft
+if [ "${RUN_SFT_ARM:-0}" = 1 ]; then          # optional SFT comparison row (~3 GPU h, ~$80); off by default for budget
+  stage sft_arm  scripts/40_sdft.sh --mode sft
+  stage eval_sft scripts/50_eval.sh sft
+fi
 stage grpo       scripts/60_grpo.sh
 stage eval_grpo  scripts/50_eval.sh grpo --full
 stage export     scripts/70_export.sh
