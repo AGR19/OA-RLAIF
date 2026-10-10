@@ -5,6 +5,7 @@
 #   3. the same model as a mini-SWE-agent in the sandbox (Docker, or the user sandbox; 200 Anatomy episodes), comparable to the
 #      base-model agent run in 30_baseline.sh
 . "$(dirname "$0")/_common.sh"
+need_gpus
 TAG="$1"; shift || true
 budget_gate "eval_$TAG"
 $PY -m oa_rlaif.eval.run_eval --model "outputs/merged/$TAG" --tag "$TAG" --tp "$EVAL_TP" 2>&1 | tee "outputs/logs/eval_$TAG.log"

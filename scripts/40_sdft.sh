@@ -3,6 +3,7 @@
 #   scripts/40_sdft.sh            on-policy self-distillation
 #   scripts/40_sdft.sh --mode sft SFT comparison row
 . "$(dirname "$0")/_common.sh"
+need_gpus
 budget_gate sdft
 MODEL="$(.venv/bin/python -c "from oa_rlaif.train.common import load_config; print(load_config()['model']['id'])")"
 vllm_up "$MODEL"; trap vllm_down EXIT

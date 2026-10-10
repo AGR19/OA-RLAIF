@@ -43,6 +43,17 @@ esac
 export OA_PLATFORM="$WHERE"
 mkdir -p outputs/stages outputs/logs
 export OA_RAW_DIR="${OA_RAW_DIR:-data/raw}"
+# GPU check first, before anything is installed or downloaded (a wrong instance fails in seconds, not after 70 GB)
+ngpu="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)"
+gpu_gb="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i 0 2>/dev/null | awk '{ print int($1 / 1024) }' || true)"
+if [ "${ngpu:-0}" -lt "${OA_MIN_GPUS:-4}" ] || [ "${gpu_gb:-0}" -lt "${OA_MIN_GPU_GB:-75}" ]; then
+  echo "This machine shows ${ngpu:-0} GPU(s) with ${gpu_gb:-0} GB each (nvidia-smi -L):"
+  nvidia-smi -L 2>/dev/null || echo "  (nvidia-smi not found)"
+  echo "The pipeline needs at least ${OA_MIN_GPUS:-4} GPUs (3 train + 1 for vLLM and the A4B judge) with >= 80 GB each"
+  echo "(B200, H200, H100 80GB, A100 80GB): the A4B judge alone is about 52 GB. Rent such an instance."
+  echo "Nothing was installed. (OA_MIN_GPUS=2 allows a smaller test run.)"
+  exit 1
+fi
 envval() { grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"' || true; }
 
 if [ "$PLATFORM" != lambda ]; then

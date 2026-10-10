@@ -301,3 +301,11 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 - **Sandbox selection (`sandbox_setup.sh`):** Docker when it can run (systemd VM, privileged container, sidecar). A container without CAP_SYS_ADMIN (CapEff bit 21; a normal Vast.ai instance) skips the Docker install. With `OA_SANDBOX_FALLBACK=user` (set for Vast) it sets up the **user sandbox**: commands run as `oa-agent` via `runuser` with `env -i`, in `/var/tmp/oa-sandbox/<tag>/<id>` (public episode only). The repo gets `chmod o-rwx`. The network is cut with `unshare -n` when allowed, else recorded as "open". It writes `OA_AGENT_ENV` and `OA_AGENT_NET` to `.env`. The eval scripts pass `--env "$OA_AGENT_ENV"`; `00_check_env.sh` tests the sandbox in use.
 - **Tested in a Vast-like container** (unprivileged ubuntu:24.04, root, CapEff a80425fb): Docker skipped; user sandbox self-test passed (om as oa-agent, repo unreadable); network open (unshare not allowed). Harness tests in the container: 6 passed, 1 skipped (docker). The real agent loop in the user sandbox passed: `whoami` = oa-agent, repo read denied, no gold in the episode, submission scored correctly.
 - Vast.ai details not confirmed by a search (the user declined web searches): tmux opens on SSH login, and `--shm-size` in the template's Docker options. The runbook words both as "normally" / "if your host allows it".
+
+## 2026-10-10 — Lambda run on 1×A100-40GB failed (NVMLError_InvalidArgument at vLLM start)
+- **Cause:** a bug from the CoreWeave change. `_common.sh` set `NGPU=4` whenever nvidia-smi showed fewer than 2 GPUs (meant for the Mac). On the user's 1×A100-40GB instance vLLM was pointed at GPU 3, which does not exist; CUDA then saw 0 GPUs.
+- **Fix:**
+  - NGPU is the real count (0 on the Mac).
+  - `need_gpus` (in vllm_up, judge_up, train_launch and the GPU scripts) stops with a message if there are fewer than `OA_MIN_GPUS` (4), if the GPUs have under `OA_MIN_GPU_GB` (75), or if an index is out of range.
+  - `run_all.sh` checks the count and memory before setup, so nothing is installed or billed past the check.
+- 40 GB GPUs cannot host the A4B judge (about 52 GB bf16): the pipeline needs ≥ 4 GPUs with ≥ 80 GB each.

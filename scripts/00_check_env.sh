@@ -27,7 +27,8 @@ for f in data/sdft/train.jsonl data/grpo/train.jsonl data/eval/heldout_anatomy.j
   [ -s "$f" ] && echo "ok $f" || { echo "MISSING $f"; FAIL=1; }
 done
 ls data/dral/*.npz >/dev/null 2>&1 && echo "dral npz: $(ls data/dral/*.npz | wc -l)" || { echo "MISSING data/dral/*.npz"; FAIL=1; }
-$PY -c "import torch, sys; n = torch.cuda.device_count(); print('gpus', n); sys.exit(0 if n >= 4 else 1)" || { echo "need 4 GPUs"; FAIL=1; }
+$PY -c "import torch, sys; n = torch.cuda.device_count(); print('gpus', n); sys.exit(0 if n >= int(sys.argv[1]) else 1)" "${OA_MIN_GPUS:-4}" \
+  || { echo "need at least ${OA_MIN_GPUS:-4} GPUs; nvidia-smi shows $NGPU"; FAIL=1; }
 # the full agent loop in the sandbox the evaluations will use (scripted model, no GPU)
 SANDBOX_TEST=docker_sandbox; [ "$AGENT_ENV" = user ] && SANDBOX_TEST=user_sandbox
 $PY -m pytest -q -rs tests/test_harness.py -k "$SANDBOX_TEST" -p no:cacheprovider | tee outputs/logs/check_sandbox.log || { echo "agent sandbox check failed"; FAIL=1; }

@@ -52,6 +52,8 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 Copy `outputs/` back to the persistent filesystem before terminating.
 
 ## One command (start here)
+**Instance:** 4×B200 (the plan), or at least 4 GPUs with 80 GB or more each (H100, H200, A100 80GB). The command checks this first and stops before installing anything on a smaller instance (for example 1×A100 40GB).
+
 Before you start:
 1. Create a GitHub token (read access to `AGR19/OA-RLAIF`) at github.com/settings/tokens.
 2. Create a Hugging Face token **with write access** at huggingface.co/settings/tokens. Write access is needed for the final GGUF push.

@@ -7,6 +7,7 @@
 # 40_sdft.sh and 60_grpo.sh then plan their step counts from these timings (train.common.plan_steps):
 # steps = min(full epochs, what fits time_budget_hours in configs/train.yaml).
 . "$(dirname "$0")/_common.sh"
+need_gpus
 budget_gate dry_run
 MODEL="$($PY -c "from oa_rlaif.train.common import load_config; print(load_config()['model']['id'])")"
 rm -f outputs/dry_run.json outputs/step_plan.json
