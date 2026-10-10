@@ -18,8 +18,9 @@
 #   8 eval_sdft   SDFT model: held-out sets + agent episodes
 #   9 grpo        Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), merged -> outputs/merged/grpo
 #  10 eval_grpo   GRPO model: held-out, zero-shot, full Anatomy alignment (OAEI row), agent episodes
-#  11 export      GGUF Q4_K_M + Ollama Modelfile (base + SDFT + GRPO in one file)
-#  12 push        private HF: oa-rlaif-e4b-gguf, oa-rlaif-e4b-sdft, oa-rlaif-e4b-grpo, oa-rlaif-results
+#  11 report      results tables (base vs SDFT vs GRPO; agents; OAEI Anatomy row) -> outputs/eval/report.{md,tex}
+#  12 export      GGUF Q4_K_M + Ollama Modelfile (base + SDFT + GRPO in one file)
+#  13 push        private HF: oa-rlaif-e4b-gguf, oa-rlaif-e4b-sdft, oa-rlaif-e4b-grpo, oa-rlaif-results
 #  (optional)     RUN_SFT_ARM=1 adds the plain-SFT comparison model (~3 GPU h, ~$80)
 #
 # Resumable: finished steps are skipped on the next run (outputs/stages/<step>.done). After a failure the dashboard
@@ -76,10 +77,14 @@ if [ "${RUN_SFT_ARM:-0}" = 1 ]; then
 fi
 stage grpo       scripts/60_grpo.sh
 stage eval_grpo  scripts/50_eval.sh grpo --full
+stage report     bash -c 'A=data/raw/anatomy-dataset-2; PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.align --backend lexical \
+                   --model lexical --source $A/mouse.owl --target $A/human.owl --reference $A/reference.rdf --format tsv \
+                   --no-coherence --out outputs/align/anatomy_lexical_baseline && PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.report' 
 stage export     scripts/70_export.sh
 stage push       env PYTHONPATH=src .venv/bin/python -m oa_rlaif.data.hf_push --models
 
 echo
 echo "DONE. Your GGUF: https://huggingface.co/$NS/oa-rlaif-e4b-gguf (private)"
 echo "Also: $NS/oa-rlaif-e4b-sdft and $NS/oa-rlaif-e4b-grpo (LoRA adapters), dataset $NS/oa-rlaif-results."
+echo "Results table: outputs/eval/report.md (also in $NS/oa-rlaif-results)"; echo; cat outputs/eval/report.md
 echo "NOW TERMINATE THE INSTANCE in the Lambda console. Billing continues until you do."

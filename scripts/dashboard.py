@@ -32,6 +32,7 @@ PLAN = [
     ("eval_sdft", 60, "evaluate the SDFT model (batch + agent)"),
     ("grpo", 330, "Stage 2: GRPO with DRAL-OA reward + A4B judge (RLAIF)"),
     ("eval_grpo", 90, "evaluate GRPO: held-out, zero-shot, full Anatomy OAEI row, agent"),
+    ("report", 2, "results tables: base vs SDFT vs GRPO, agents, OAEI Anatomy row"),
     ("export", 30, "merge and convert to GGUF Q4_K_M + Ollama Modelfile"),
     ("push", 15, "upload GGUF, adapters and results to private Hugging Face"),
 ]

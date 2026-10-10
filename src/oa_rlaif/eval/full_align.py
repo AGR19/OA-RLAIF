@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from ..data.cards import card, children_index, names
 from ..harness.prompts import decision_messages, parse_decision
-from ..ontology.alignment_io import SSSOM_PREDICATE, orient, read_alignment, write_oaei_rdf, write_sssom, select_equivalences
+from ..ontology.alignment_io import SSSOM_PREDICATE, orient, read_alignment, select_equivalences, write_oaei_rdf, write_sssom
 from ..ontology.models import Alignment
 from ..ontology.parser import OntologyParser
 from ..paths import out_dir
@@ -59,11 +60,13 @@ def main() -> int:
     parser.add_argument("--source", type=Path)
     parser.add_argument("--target", type=Path)
     parser.add_argument("--reference", type=Path)
+    parser.add_argument("--trivial", type=Path, help="OAEI trivial alignment for Recall+ (default: trivial.rdf next to the reference)")
     parser.add_argument("--name", required=True)
     parser.add_argument("--k", type=int, default=20)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--tp", type=int, default=1)
     args = parser.parse_args()
+    started = time.time()
     source = OntologyParser().parse(args.source)
     target = OntologyParser().parse(args.target)
     episodes = episodes_for(source, target, args.k)
@@ -80,10 +83,15 @@ def main() -> int:
         "object_label": label(target, a.target_iri), "mapping_justification": "semapv:SemanticSimilarityThresholdMatching",
         "confidence": round(a.confidence, 4), "mapping_tool": "oa-rlaif-e4b", "comment": ""} for a in alignments),
         {"mapping_set_id": f"https://github.com/AGR19/OA-RLAIF/{args.name}", "mapping_tool": "oa-rlaif-e4b"})
-    summary = {"sources": len(episodes), "alignments": len(alignments)}
+    runtime = round(time.time() - started)
+    summary = {"sources": len(episodes), "alignments": len(alignments), "runtime_s": runtime}
     if args.reference:
         reference = {orient(a, source, target).pair for a in read_alignment(args.reference) if a.atomic}
-        summary["scores"] = AlignmentEvaluator().evaluate({a.pair for a in alignments}, reference, matcher="oa-rlaif-e4b")
+        trivial_path = args.trivial or args.reference.parent / "trivial.rdf"
+        trivial = ({orient(a, source, target).pair for a in read_alignment(trivial_path) if a.atomic} & reference
+                   if trivial_path.exists() else None)
+        summary["scores"] = AlignmentEvaluator().evaluate({a.pair for a in alignments}, reference, matcher="oa-rlaif-e4b",
+                                                          runtime=runtime, trivial=trivial)
     (out / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
     print(json.dumps(summary, indent=1, default=str))
     return 0
