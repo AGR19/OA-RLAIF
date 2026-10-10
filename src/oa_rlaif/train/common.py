@@ -13,8 +13,21 @@ from ..paths import ROOT, data_dir, out_dir
 from ..progress import _update, fmt_duration
 
 
+SMOKE = os.environ.get("OA_SMOKE") == "1"  # Mac end-to-end test: tiny model, CPU, no vLLM (scripts/smoke_mac.sh)
+
+
 def load_config() -> dict:
     cfg = read_yaml(ROOT / "configs" / "train.yaml")
+    if os.environ.get("OA_MODEL_ID"):
+        cfg["model"]["id"] = os.environ["OA_MODEL_ID"]
+    if SMOKE:
+        from ..dev.cpu_kernels import install
+        install()  # TRL's SFT loss kernel needs Triton (Linux only); the Mac uses a plain-PyTorch stand-in
+        cfg["smoke"] = True
+        cfg["model"]["dtype"] = "float32"
+        cfg["sdft"].update(per_device_batch=2, grad_accum=1, max_completion_length=24, logging_steps=1, save_steps=10_000)
+        cfg["grpo"].update(per_device_batch=4, grad_accum=1, num_generations=2, max_completion_length=32,
+                           logging_steps=1, save_steps=10_000, sample_dump_every=1)
     dry = out_dir() / "dry_run.json"
     if dry.exists():
         cfg["dry_run"] = json.loads(dry.read_text())
@@ -32,6 +45,8 @@ def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epo
     s = cfg[stage]
     if s.get("max_steps", -1) and s["max_steps"] > 0:
         return int(s["max_steps"])
+    if cfg.get("smoke"):
+        return int(os.environ.get("OA_SMOKE_STEPS", "3"))
     full = math.ceil(prompts / max(1e-9, prompts_per_step) * epochs)
     measured = (cfg.get("dry_run") or {}).get(f"{stage}_seconds_per_step")
     if not measured:
@@ -58,6 +73,20 @@ def record_dry_run(**values) -> None:
     path.write_text(json.dumps(data, indent=1))
 
 
+def out_path(relative: str) -> Path:
+    """Config paths under outputs/ follow OA_OUT_DIR (the smoke test writes to outputs/smoke)."""
+    return out_dir() / relative.split("/", 1)[1] if relative.startswith("outputs/") else ROOT / relative
+
+
+def runtime_kwargs(cfg: dict, generation: bool = True) -> dict:
+    """GPU box: bf16, gradient checkpointing and the vLLM rollout server. Smoke test: plain CPU settings."""
+    if cfg.get("smoke"):
+        return {"bf16": False, "gradient_checkpointing": False, **({"use_vllm": False} if generation else {})}
+    v = cfg["vllm"]
+    vllm = {"use_vllm": True, "vllm_mode": "server", "vllm_server_host": v["server_host"], "vllm_server_port": v["server_port"]}
+    return {"bf16": True, "gradient_checkpointing": True, **(vllm if generation else {})}
+
+
 def offline_after_download() -> None:
     """Everything runs locally once weights are cached (only the A4B judge API goes out)."""
     os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -72,8 +101,12 @@ def load_model(cfg: dict, path: str | None = None):
     model_id = path or cfg["model"]["id"]
     model = AutoModelForImageTextToText.from_pretrained(
         model_id, dtype=getattr(torch, cfg["model"]["dtype"]), attn_implementation=cfg["model"]["attn_implementation"])
-    processor = AutoProcessor.from_pretrained(cfg["model"]["id"])
-    tokenizer = getattr(processor, "tokenizer", processor)
+    try:
+        processor = AutoProcessor.from_pretrained(cfg["model"]["id"])
+        tokenizer = getattr(processor, "tokenizer", processor)
+    except Exception:  # a text-only checkpoint (the smoke-test model) has no image/audio processor configs
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["id"])
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return model, tokenizer
@@ -89,7 +122,10 @@ def lora_config(cfg: dict):
 def load_jsonl_dataset(path: Path):
     from datasets import load_dataset
 
-    return load_dataset("json", data_files=str(path), split="train")
+    data = load_dataset("json", data_files=str(path), split="train")
+    if SMOKE:  # a small, mixed sample of the real rows
+        data = data.shuffle(seed=5).select(range(min(len(data), int(os.environ.get("OA_SMOKE_ROWS", "24")))))
+    return data
 
 
 def progress_callback(stage: str, guard: BudgetGuard, dump_dir: Path | None = None, dump_every: int = 0):

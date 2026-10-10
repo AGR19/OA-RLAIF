@@ -108,7 +108,7 @@ def gold_answer(episode: dict, thought: str = "") -> str:
 
 
 def privileged_context(episode: dict) -> str:
-    """What the frozen SDFT teacher sees in addition to the prompt."""
+    """OPSD privileged context: what the frozen teacher sees besides the prompt, i.e. the ground-truth answer."""
     index = {c["iri"]: i for i, c in enumerate(episode["candidates"], 1)}
     golds = [f"C{index[g]}" for g in episode.get("gold", []) if g in index]
     if golds:

@@ -17,25 +17,50 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGES_DIR = ROOT / "outputs" / "stages"
+OUT = Path(os.environ.get("OA_OUT_DIR", "outputs"))
+OUT = OUT if OUT.is_absolute() else ROOT / OUT
+STAGES_DIR = OUT / "stages"
 RATE = float(os.environ.get("OA_GPU_USD_PER_HOUR", "27.16"))
 
 # (name, estimated minutes, what happens). Estimates feed the ETA until real progress is known.
+# OA_DASH_PLAN=smoke shows the Mac smoke-test steps instead (scripts/smoke_mac.sh).
 PLAN = [
     ("setup", 25, "install packages, download Gemma 4 E4B + A4B judge, Docker sandbox, llama.cpp"),
     ("data", 5, "download the private datasets from Hugging Face"),
     ("check_env", 5, "check GPUs, libraries, data and the Docker agent sandbox"),
     ("gguf_check", 15, "convert the base model to GGUF to prove export works"),
-    ("dry_run", 35, "time SDFT and GRPO (with judge), plan the step counts"),
+    ("dry_run", 40, "time OPSD, SFT and GRPO (with judge), plan the step counts"),
     ("baseline", 45, "evaluate the base E4B (batch + agent)"),
-    ("sdft", 330, "Stage 1: on-policy self-distillation (knowledge into weights)"),
-    ("eval_sdft", 60, "evaluate the SDFT model (batch + agent)"),
-    ("grpo", 330, "Stage 2: GRPO with DRAL-OA reward + A4B judge (RLAIF)"),
-    ("eval_grpo", 90, "evaluate GRPO: held-out, zero-shot, full Anatomy OAEI row, agent"),
-    ("report", 2, "results tables: base vs SDFT vs GRPO, agents, OAEI Anatomy row"),
+    ("sdft", 225, "Stage 1: OPSD, on-policy self-distillation; teacher sees the answer"),
+    ("eval_sdft", 45, "evaluate the OPSD model (batch + agent)"),
+    ("grpo", 225, "Stage 2: GRPO with DRAL-OA reward + A4B judge (RLAIF)"),
+    ("eval_grpo", 70, "evaluate GRPO: held-out, zero-shot, ICD-11↔SNOMED, OAEI Anatomy row, agent"),
     ("export", 30, "merge and convert to GGUF Q4_K_M + Ollama Modelfile"),
-    ("push", 15, "upload GGUF, adapters and results to private Hugging Face"),
+    ("push", 15, "upload GGUF + adapters to private Hugging Face (GGUF safe from here)"),
+    ("sft", 110, "SFT comparison: same rows and steps as OPSD"),
+    ("eval_sft", 45, "evaluate the SFT model (batch + agent)"),
+    ("report", 2, "results tables: base / SFT / OPSD / GRPO, ICD-11↔SNOMED, agents, OAEI row"),
+    ("results", 5, "upload tables, metrics and ICD-11↔SNOMED SSSOM to private Hugging Face"),
 ]
+
+
+SMOKE_PLAN = [
+    ("tiny_model", 1, "build a tiny random Gemma 4 (same architecture, 26M params)"),
+    ("dry_run", 3, "time OPSD, SFT and GRPO steps (CPU, no vLLM), plan step counts"),
+    ("baseline", 2, "evaluate the base model (batch + agent in Docker)"),
+    ("sdft", 3, "Stage 1: OPSD training, then merge"),
+    ("eval_sdft", 2, "evaluate the OPSD model (batch + agent)"),
+    ("grpo", 3, "reward check (judge over HTTP), Stage 2: GRPO with DRAL-OA reward + judge, then merge"),
+    ("eval_grpo", 3, "evaluate GRPO: held-out, ICD-11↔SNOMED, full Anatomy subset, agent"),
+    ("export", 1, "Modelfile + placeholder GGUF (the real GGUF is built on Lambda)"),
+    ("push", 1, "model push, dry run"),
+    ("sft", 2, "SFT comparison, then merge"),
+    ("eval_sft", 2, "evaluate the SFT model (batch + agent)"),
+    ("report", 1, "results tables"),
+    ("results", 1, "results push, dry run"),
+]
+if os.environ.get("OA_DASH_PLAN") == "smoke":
+    PLAN = SMOKE_PLAN
 
 
 def fmt(seconds: float | None) -> str:
@@ -60,7 +85,7 @@ def read(path: Path, default=None):
 
 def stage_fraction(started: float, minutes: float, now: float) -> tuple[float, str]:
     """Progress of the running step: the newest progress.json record started after it, else elapsed / estimate."""
-    progress = (read(ROOT / "outputs" / "progress.json", {}) or {}).get("stages", {})
+    progress = (read(OUT / "progress.json", {}) or {}).get("stages", {})
     live = [v for v in progress.values() if v.get("status") == "running" and v.get("started", 0) >= started - 5
             and v.get("fraction") is not None]
     if live:
@@ -70,7 +95,7 @@ def stage_fraction(started: float, minutes: float, now: float) -> tuple[float, s
 
 
 def last_log_line(name: str) -> str:
-    path = ROOT / "outputs" / "logs" / f"stage_{name}.log"
+    path = OUT / "logs" / f"stage_{name}.log"
     try:
         with path.open("rb") as f:
             f.seek(0, 2)

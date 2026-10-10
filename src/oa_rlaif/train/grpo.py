@@ -23,7 +23,7 @@ from ..paths import ROOT, data_dir, out_dir
 from ..reward.combined import RECENT, make_reward_functions
 from ..reward.dral_reward import DralScorer
 from .common import (grpo_paths, load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download,
-                     plan_steps, progress_callback, record_dry_run)
+                     out_path, plan_steps, progress_callback, record_dry_run, runtime_kwargs)
 
 
 def hacking_monitor(dump_dir: Path, every: int):
@@ -84,17 +84,17 @@ def main() -> int:
     prompts_per_step = g["per_device_batch"] * g["grad_accum"] * world / g["num_generations"]
     max_steps = args.max_steps if args.max_steps is not None else plan_steps(cfg, "grpo", len(train), prompts_per_step, 1)
     config = GRPOConfig(
-        output_dir=str(ROOT / g["output_dir"]), learning_rate=g["learning_rate"],
+        output_dir=str(out_path(g["output_dir"])), learning_rate=g["learning_rate"],
         per_device_train_batch_size=g["per_device_batch"], gradient_accumulation_steps=g["grad_accum"],
         max_steps=max_steps, num_train_epochs=1,
-        bf16=True, gradient_checkpointing=True, logging_steps=g["logging_steps"], save_steps=g["save_steps"],
+        logging_steps=g["logging_steps"], save_steps=g["save_steps"],
         save_total_limit=3, report_to=["tensorboard"], num_generations=g["num_generations"],
         temperature=g["temperature"], top_p=g["top_p"], max_completion_length=g["max_completion_length"],
         loss_type=g["loss_type"], beta=g["beta"], scale_rewards="none" if not g["scale_rewards"] else "group",
         mask_truncated_completions=g["mask_truncated_completions"], reward_weights=weights,
         chat_template_kwargs=cfg["model"]["chat_template_kwargs"], log_completions=True, num_completions_to_print=2,
-        use_vllm=True, vllm_mode="server", vllm_server_host=v["server_host"], vllm_server_port=v["server_port"])
-    model, tokenizer = load_model(cfg, args.init or str(ROOT / g["init_from"]))
+        **runtime_kwargs(cfg))
+    model, tokenizer = load_model(cfg, args.init or str(out_path(g["init_from"])))
     callbacks = progress_callback("grpo", guard) + [hacking_monitor(out_dir() / "grpo_samples", g["sample_dump_every"])]
     trainer = GRPOTrainer(model=model, reward_funcs=reward_funcs, args=config, train_dataset=train,
                           processing_class=tokenizer, peft_config=lora_config(cfg), callbacks=callbacks)
@@ -105,7 +105,7 @@ def main() -> int:
                        grpo_prompts_per_step=prompts_per_step, grpo_train_prompts=len(train),
                        grpo_judge=judge is not None)
         return 0
-    trainer.save_model(str(ROOT / g["output_dir"] / "final"))
+    trainer.save_model(str(out_path(g["output_dir"]) / "final"))
     if judge is not None:
         print(json.dumps({"judge_fallbacks": judge.fallbacks, "spent": guard.summary()}))
     return 0

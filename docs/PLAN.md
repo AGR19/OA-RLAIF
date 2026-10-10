@@ -6,7 +6,7 @@
 - `RLAIF/MEMORY.md`: a dated decision log for 2026-10-10, recording every answer you gave.
   - Hardware: 4×B200. A4B is used through the API for question generation; the GRPO judge is A4B served locally (decided 2026-10-10).
   - Data: rebuilt from raw.
-  - Methods: TRL instead of Unsloth; SDFT/OPSD instead of CPT/SFT; no RAG.
+  - Methods: TRL instead of Unsloth; OPSD instead of CPT/SFT; no RAG.
   - Reward: gold + DRAL Eq. 1 + judge.
   - Data scope: ICD triangulation included.
   - Visibility: GitHub and Hugging Face both private.
@@ -25,7 +25,7 @@ Target venues: NeurIPS, ICLR, ICML, AAAI. The figure is built before any code so
   - Font size ≥ 7 pt at print size. Math is typeset properly: $\pi_\theta(y\mid x)$, $\pi_{\theta_0}(y\mid x,c)$, $D_{\mathrm{KL}}$, Eq. 1, $\hat A_i$.
 - **Panels:**
   - **(a) Data → episodes:** 11 raw OM families, the datasource and the ICD-11←ICD-10←SNOMED bridge go into the episode builder $(x, c, y^\*)$, with group-level 80/20 and zero-shot pairs.
-  - **(b) Stage 1, on-policy self-distillation (SDFT/OPSD, TRL `SDFTTrainer`):**
+  - **(b) Stage 1, on-policy self-distillation (OPSD, TRL `SDFTTrainer`):**
     - the student $\pi_\theta(\cdot\mid x)$ samples $y$;
     - the frozen teacher $\pi_{\theta_0}(\cdot\mid x,c)$ scores it;
     - the per-token reverse-KL loss is shown;
@@ -45,7 +45,7 @@ flowchart TB
   R[Raw ontologies<br/>11 families] --> B[Episode builder<br/>x, c, y*, splits]
   T[Datasource<br/>A4B questions] --> B
   I[ICD triangulation<br/>11 to 10 to SNOMED] --> B
-  B --> S1[Stage 1: SDFT/OPSD<br/>TRL SDFTTrainer]
+  B --> S1[Stage 1: OPSD<br/>TRL SDFTTrainer]
   B -. privileged c .-> TE[Frozen teacher<br/>E4B + c]
   V[Parse + reference verifier<br/>OWL API, ELK, Beisswanger checks] --> B
   TE -- token log-probs --> S1
@@ -70,16 +70,16 @@ The raw folder `OA Finetune Small Model/datasets/Raw Ontology Folders` holds **2
 
 | Raw folder (files) | How every file is used |
 |---|---|
-| `anatomy-dataset-2` (4) | `mouse.owl`, `human.owl` → ontology facts (SDFT), candidate pools, DRAL graph · `reference.rdf` (1,516) → gold for SDFT, GRPO and eval · `trivial.rdf` (947) → lexical baseline and the Recall+ "trivial" set (never an input for test entities) |
+| `anatomy-dataset-2` (4) | `mouse.owl`, `human.owl` → ontology facts (OPSD), candidate pools, DRAL graph · `reference.rdf` (1,516) → gold for OPSD, GRPO and eval · `trivial.rdf` (947) → lexical baseline and the Recall+ "trivial" set (never an input for test entities) |
 | `DH-benchmark-main` (274) | 8 pairs: `source`/`target` → facts; `reference` → gold · `results/OAEI2024–2025` system alignments → **hard negatives** (system false positives) and baseline rows · performance-cube CSVs and `results.md` → baseline table · README/LICENSE → data card and licenses |
 | `DH-benchmark-multiling-main` (334) | 9 multilingual pairs, same roles · multilingual labels kept with language tags |
 | `dataset-2015-testing` (MultiFarm, 1,175) | 50 OWL files (5 ontologies × 10 languages) → multilingual facts · 1,125 references → cross-lingual gold, split by concept across all languages |
 | `biodiv` (6) | ENVO, SWEET, FLOPO, PTO → facts · `envo-sweet` (666), `flopo-pto` (245) → gold |
-| `complex-OM-benchmark-main` (540) | ontologies plus populated variants (popconference 0–100%, popenslaved, popgeolink) → facts, including instances · EDOAL references → complex-alignment SDFT and eval (never flattened) · biomedical HP/MP/WBP reference OWLs → gold · `2025_OAEI/GED-and-class-eval` system outputs → hard negatives and baseline rows |
+| `complex-OM-benchmark-main` (540) | ontologies plus populated variants (popconference 0–100%, popenslaved, popgeolink) → facts, including instances · EDOAL references → complex-alignment OPSD and eval (never flattened) · biomedical HP/MP/WBP reference OWLs → gold · `2025_OAEI/GED-and-class-eval` system outputs → hard negatives and baseline rows |
 | `ICD-10 to SNOWMEDCT` (63) | `icd11.owl`, `ICD10CM.ttl`, SNOMED OWL → facts · RF2 Snapshot (concepts, descriptions, text definitions, relationships, OWL axioms, language refsets) → facts and synonyms · **ExtendedMap 447562003 → ICD bridge**; 6011000124106 → auxiliary bridge · SimpleMap (CTV3, ICD-O) → extra mapping facts · association refsets → replace inactive concepts (no deprecated IRIs in gold) · RF2 Full → history check · WHO 10↔11 `.txt` → bridge and ICD-10↔11 gold; `.xlsx` → cross-checked against the `.txt` · readme/release JSON/screenshot → provenance |
-| `OAEI-Bio-ML-main` (175) | `scoring_kit` → official scorer for eval · `leaderboard.json` and results HTML → baseline rows · `biollm_result.tsv`, MELT skip list → hard negatives / eval skip list · docs (`evaluation-metrics.md` and similar) → SDFT knowledge passages · scripts/site → provenance |
-| `Ontology Matching Textbook.pdf` | SDFT knowledge (A4B questions; the passage is the teacher context) and the closed-book eval |
-| `Deeper_and_Deeper…pdf` | reward specification (Eq. 1–3, Algorithm 1) and SDFT knowledge passages |
+| `OAEI-Bio-ML-main` (175) | `scoring_kit` → official scorer for eval · `leaderboard.json` and results HTML → baseline rows · `biollm_result.tsv`, MELT skip list → hard negatives / eval skip list · docs (`evaluation-metrics.md` and similar) → OPSD knowledge passages · scripts/site → provenance |
+| `Ontology Matching Textbook.pdf` | OPSD knowledge (A4B questions; the passage is the teacher context) and the closed-book eval |
+| `Deeper_and_Deeper…pdf` | reward specification (Eq. 1–3, Algorithm 1) and OPSD knowledge passages |
 
 **Unseen-domain test (added 2026-10-10):** `cyber/iotsec-uco` (IoTSec → UCO, cybersecurity) comes from the user's Advanced-Cybersecurity-OA project.
 - Ontologies are converted by `data/cyber.py`; 69 of 90 reference pairs resolve.
@@ -111,7 +111,7 @@ System outputs and leaderboards are **never** used as gold. They serve only as h
   - coverage of definitions and synonyms; languages;
   - special notes for SNOMED (semantic tags, primitive vs fully defined) and ICD (mutually exclusive classification buckets).
 
-  The source and target profiles appear in every decision prompt (SDFT, GRPO, eval, the `om profile` tool). The profiles also become SDFT knowledge prompts, so the conventions are learned into the weights.
+  The source and target profiles appear in every decision prompt (OPSD, GRPO, eval, the `om profile` tool). The profiles also become OPSD knowledge prompts, so the conventions are learned into the weights.
 - **Evaluating against those assumptions.** The OAEI **Coherent** column comes from ELK over source + target + alignment (`OwlVerify --coherence`). Results are also reported on assumption-sensitive slices: residual categories, part-of vs is-a, polyhierarchy and properties.
 - **Output modes for any two ontologies** (`python -m oa_rlaif.eval.align`; local vLLM or Ollama/GGUF):
   - `--format oaei` → Alignment API RDF;
@@ -130,7 +130,7 @@ System outputs and leaderboards are **never** used as gold. They serve only as h
   - data coverage, the datasource (all 16 textbook units plus 18 matching surveys) and the splits;
   - parse verification and modelling profiles;
   - ICD triangulation;
-  - SDFT/OPSD, GRPO and the reward, the DRAL-OA port and the local A4B judge;
+  - OPSD, GRPO and the reward, the DRAL-OA port and the local A4B judge;
   - the harness, output formats, compute and budget.
 
   Results that do not exist yet stay as marked placeholders. Numbers come only from `MEMORY.md`, the docs and the data stats.
@@ -153,7 +153,7 @@ System outputs and leaderboards are **never** used as gold. They serve only as h
   - Every push needs your OK in chat.
 - **Dataset repos (private):**
   - `{ns}/oa-rlaif-datasource`: datasource passages and questions, closed-book test.
-  - `{ns}/oa-rlaif-sdft`: all SDFT prompts with privileged context, covering facts, alignment, multilingual, complex and agent turns.
+  - `{ns}/oa-rlaif-sdft`: all OPSD prompts with privileged context, covering facts, alignment, multilingual, complex and agent turns.
   - `{ns}/oa-rlaif-grpo`: GRPO episodes, gold, candidates and eval splits.
   - `{ns}/oa-rlaif-dral-reward`: the RL reward function artifacts (mapping-layer weights, entity embeddings per pair, Eq. 1 config).
   - `{ns}/oa-rlaif-icd-triangulation`: SSSOM silver links and bridge splits.
@@ -213,7 +213,7 @@ The user wants a new self-contained `RLAIF/` folder that:
 
 **Training pipeline (Lambda):**
 0. **Baseline:** base E4B on the held-out sets, run both as a vLLM batch and in mini-SWE-agent.
-1. **Knowledge + skill injection with SDFT/OPSD** (`SDFTTrainer`, teacher = frozen base E4B with `privileged_context`, reverse-KL/JSD on student rollouts, LoRA all-linear on the language model, about 2 epochs). This replaces CPT and SFT. Prompt families, where the student never sees the context:
+1. **Knowledge + skill injection with OPSD** (`SDFTTrainer`, teacher = frozen base E4B with `privileged_context`, reverse-KL/JSD on student rollouts, LoRA all-linear on the language model, about 2 epochs). This replaces CPT and SFT. Prompt families, where the student never sees the context:
    - (a) **Datasource:** A4B writes concept questions per passage, and the privileged context is the passage. 20% of passages are held out for a closed-book test.
    - (b) **Ontology facts** from *every* ontology in the raw folder: labels, synonyms, parents, definitions, codes, with privileged context = the entity card. Per-ontology caps keep SNOMED and NCIT bounded.
    - (c) **Alignment decisions** from every reference alignment (train split): source card + candidates → pick or NONE, with privileged context = the gold answer and evidence.
@@ -228,7 +228,7 @@ The user wants a new self-contained `RLAIF/` folder that:
    - Silver ICD episodes get weight 0.5. Unlabeled episodes use the DRAL term only, weight 0.3, at most 10% of prompts.
    - A hallucinated IRI or bad format scores 0.
    - The mapping layer is fit on train references only. Every reward term is logged, and samples are dumped to catch cheating.
-3. **Eval:** base vs SDFT vs GRPO on the held-out 20% plus zero-shot pairs.
+3. **Eval:** base vs OPSD vs GRPO on the held-out 20% plus zero-shot pairs.
    - Metrics: P/R/F1/Recall+ (Anatomy, against DRAL-OA .828 and the lexical baseline), Bio-ML Hits@1/MRR with the official kit, candidate recall, closed-book datasource QA, ontology-fact retention, ICD bridge recovery.
    - **Full-mapping runs:** Anatomy (whole ontologies) and ICD-11 MMS → SNOMED, both written as SSSOM.
 4. **Export:** merge LoRA → GGUF → Ollama (Gemma 4 template) → mini-SWE-agent smoke test.
@@ -237,7 +237,7 @@ The user wants a new self-contained `RLAIF/` folder that:
 - All data prep, DRAL fitting, A4B question generation and verification run on the Mac **before** renting.
 - `budget.py` multiplies wall-clock time by the configured $/hr (default $27.16 for 4×B200) plus logged API spend. It checkpoints and stops at **$450**.
 - A 30-minute dry run measures throughput, and the steps for each stage are set from it.
-- Estimate: setup/dry run 1 h, baseline 0.75 h, SDFT 6 h, GRPO 6 h, eval and full mapping 2 h, export 0.5 h ≈ 16 h ≈ $440, plus about $20–40 of API.
+- Estimate: setup, checks and dry run 1.5 h, baseline 0.75 h, OPSD ≤ 4 h, GRPO ≤ 4 h, compulsory SFT comparison ≤ 2 h, evaluations and full mapping 2.7 h, export, uploads and tables 0.9 h ≈ 15 h ≈ $411. The judge is local (no API cost on Lambda).
 
 ## `RLAIF/` layout (its own git repo → AGR19/OA-RLAIF)
 ```
@@ -261,15 +261,15 @@ RLAIF/
 2. **`REPO_REVIEW.md`:** what exists, what is reusable, and the issues (absolute provenance paths, test-heavy splits, `trivial.rdf` overlap, `complete_tasks.sqlite` WAL, `bioml_root` bug, Tinker coupling).
 2. **`LITERATURE_REVIEW.md`:** three ranked tables.
    - (a) RLHF/RLAIF/RL: InstructGPT, Constitutional AI, RLAIF vs RLHF, DPO, PPO, GRPO/DeepSeekMath, DeepSeek-R1 (Nature), DAPO, Dr.GRPO, LLM-as-judge, reward over-optimization, REINFORCE.
-   - (b) OPD: GKD, MiniLLM, Thinking Machines, Qwen3, OPSD, SDFT, OPCD, SDPO, MixSD, OPD-before-RL, survey 2604.00626, critiques.
+   - (b) OPD: GKD, MiniLLM, Thinking Machines, Qwen3, OPSD, OPSD, OPCD, SDPO, MixSD, OPD-before-RL, survey 2604.00626, critiques.
    - (c) Ontology matching with ML/LLMs: Euzenat & Shvaiko, LogMap, AML, BERTMap, Bio-ML, DeepAlignment, SapBERT, node2vec, OLaLa, LLMs4OM, Agent-OM, SSSOM, DRAL-OA (2024 and 2025), Xue, Touati.
    - `tools/verify_dois.py` resolves each DOI through doi.org/Crossref/DataCite and pulls Semantic Scholar counts (rate-limited) with a snapshot date and venue tier. Unverifiable entries are dropped. A novelty check covers OM 2024/25 and arXiv 2025–26.
-3. **`PLAN_REVIEW.md`:** go through the 16-step plan one item at a time, with the changes: SFT → SDFT/OPSD, Unsloth → TRL, group-level 80/20 plus zero-shot pairs, mini-SWE-agent for eval and deployment, the reward above, the budget.
+3. **`PLAN_REVIEW.md`:** go through the 16-step plan one item at a time, with the changes: SFT → OPSD, Unsloth → TRL, group-level 80/20 plus zero-shot pairs, mini-SWE-agent for eval and deployment, the reward above, the budget.
 4. **Package:** vendor the repo's tested modules (`ontology_parser`, `models`, `extractors/common.read_alignment/orient`, `eval_metrics.AlignmentEvaluator`, `candidate_generator`, `negative_sampler`, `task_predictor.parse_mapping_tsv`, `icd_mappings`, `fetch_bioml`), with the ROOT guards, Tinker code and `.env` coupling removed. Paths are env- and config-driven.
 5. **Data rebuild:** one adapter per raw family plus Bio-ML.
    - Splits are 80/20 by source-entity group. Concepts are grouped across languages, and SNOMED IRIs across Bio-ML pairs. Whole pairs are held out for zero-shot tests.
-   - Output is SDFT prompt JSONL with `prompt`/`privileged_context`, plus GRPO episode JSONL.
-   - Token caps target a budget of about 6 h of SDFT.
+   - Output is OPSD prompt JSONL with `prompt`/`privileged_context`, plus GRPO episode JSONL.
+   - Token caps target a budget of about 6 h of OPSD.
 6. **Datasource:** `pdftotext` → section passages. A4B writes the questions and validates their grounding. Held-out passages form the closed-book test set.
 7. **ICD triangulation** (`icd_triangulation.py`): compose, type, score, emit SSSOM, report stats (counts by relation and rule type, fan-out), and build the held-out bridge split.
 8. **DRAL reward:**
@@ -279,7 +279,7 @@ RLAIF/
    - `REWARD_SPEC.md` explains the mapping from DRAL-OA to GRPO.
 9. **Judge:** async OpenAI-compatible client with a cache, temperature 0, a neutral fallback, and a rubric (evidence cited correctly, thought matches the answer, no invented IRIs, calibrated confidence). The judge never sees gold.
 10. **Harness:** `om` CLI, `Dockerfile.om`, and a pinned mini-SWE-agent config whose submit semantics are checked against its default config.
-11. **Train scripts:** SDFT and GRPO with `accelerate` and a vLLM server, a budget callback, and sample dumps. **Eval scripts:** full-mapping SSSOM and RDF output.
+11. **Train scripts:** OPSD and GRPO with `accelerate` and a vLLM server, a budget callback, and sample dumps. **Eval scripts:** full-mapping SSSOM and RDF output.
 12. **Verify:**
     - `pytest` passes.
     - Parse and reference verification (OWL API cross-parse, ELK, Beisswanger & Hahn checks) passes; see the ★ section above.

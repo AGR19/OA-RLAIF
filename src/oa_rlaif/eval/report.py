@@ -3,7 +3,7 @@
     python -m oa_rlaif.eval.report          # -> outputs/eval/report.md, report.tex, report.json
 
 Table 1 (main): one row per training stage, one column per evaluation set, best value per column in bold:
-    Gemma 4 E4B (base) | + SFT (optional arm) | + SDFT (OPSD) | + SDFT -> GRPO (RLAIF)
+    Gemma 4 E4B (base) | + SFT (compulsory comparison) | + OPSD | + OPSD -> GRPO (RLAIF)
     held-out decision F1 per family, ICD bridge accuracy, zero-shot pairs, closed-book knowledge (token F1), average
 Table 2: the same models as mini-SWE-agents in the Docker sandbox (200 Anatomy episodes).
 Table 3: the whole Anatomy alignment in OAEI form (Runtime, Size, P, F, R, Recall+), with the lexical baseline and
@@ -19,11 +19,13 @@ from pathlib import Path
 
 from ..paths import out_dir
 
-ROWS = [("base", "Gemma 4 E4B (base)"), ("sft", "+ SFT"), ("sdft", "+ SDFT (OPSD)"), ("grpo", "+ SDFT → GRPO (RLAIF)")]
+# Stage 1 is OPSD: the frozen teacher sees the ground-truth answer (internal tag "sdft" = TRL's SDFTTrainer class).
+ROWS = [("base", "Gemma 4 E4B (base)"), ("sft", "+ SFT"), ("sdft", "+ OPSD"), ("grpo", "+ OPSD → GRPO (RLAIF)")]
 DECISIONS = [("heldout_anatomy", "Anatomy", "f1"), ("heldout_bioml", "Bio-ML", "f1"),
              ("heldout_multifarm", "MultiFarm", "f1"), ("heldout_dh", "DH", "f1"),
              ("heldout_dh_multiling", "DH-ML", "f1"), ("heldout_biodiv", "Biodiv", "f1"),
-             ("heldout_icd", "ICD bridge", "accuracy"), ("zero_shot", "Zero-shot", "f1")]
+             ("heldout_icd:who-icd10-to-icd11", "ICD-10→11", "accuracy"),
+             ("heldout_icd:snomed-to-icd11", "SNOMED→ICD-11", "bridge_recovery"), ("zero_shot", "Zero-shot", "f1")]
 KNOWLEDGE = [("closed_book_knowledge_qa", "Datasource QA"), ("closed_book_fact", "Onto. facts")]
 DRAL_OA_OFFICIAL = {"Matcher": "DRAL-OA (OAEI 2025, official)", "Runtime": None, "Size": None,
                     "Precision": 0.83, "F-Measure": 0.828, "Recall": 0.827, "Recall+": None}
@@ -78,11 +80,15 @@ def oaei_table(root: Path) -> tuple[list[str], list[tuple[str, list]]]:
     return header, rows
 
 
-def _best(rows: list[tuple[str, list]], higher_is_better: list[bool]) -> list[float | None]:
+def _best(rows: list[tuple[str, list]], higher_is_better: list[bool | None]) -> list[float | None]:
+    """Best value per column; None (no bold) for count columns (higher=None), single values and all-equal columns."""
     best = []
     for j, higher in enumerate(higher_is_better):
         col = [r[1][j] for r in rows if r[1][j] is not None]
-        best.append((max(col) if higher else min(col)) if len(col) > 1 else None)
+        if higher is None or len(col) < 2 or max(col) == min(col):
+            best.append(None)
+        else:
+            best.append(max(col) if higher else min(col))
     return best
 
 
@@ -93,16 +99,19 @@ def _cell(v, best, fmt, bold) -> str:
     return bold(text) if best is not None and v == best else text
 
 
-def render(title: str, header: list[str], rows, fmt: str, higher=None) -> tuple[str, str]:
+def render(title: str, header: list[str], rows, fmt: str | list[str], higher=None) -> tuple[str, str]:
     higher = higher or [True] * len(header)
+    fmts = fmt if isinstance(fmt, list) else [fmt] * len(header)
     best = _best(rows, higher)
     md = [f"**{title}**", "", "| Method | " + " | ".join(header) + " |", "|---|" + "---:|" * len(header)]
     tex = [r"\begin{tabular}{l" + "c" * len(header) + "}", r"\hline",
            "Method & " + " & ".join(header) + r" \\", r"\hline"]
     for label, values in rows:
-        md.append(f"| {label} | " + " | ".join(_cell(v, b, fmt, lambda t: f"**{t}**") for v, b in zip(values, best)) + " |")
+        md.append(f"| {label} | " + " | ".join(_cell(v, b, f, lambda t: f"**{t}**") for v, b, f in zip(values, best, fmts))
+                  + " |")
         tex.append(label.replace("→", r"$\rightarrow$") + " & "
-                   + " & ".join(_cell(v, b, fmt, lambda t: r"\textbf{" + t + "}") for v, b in zip(values, best)) + r" \\")
+                   + " & ".join(_cell(v, b, f, lambda t: r"\textbf{" + t + "}") for v, b, f in zip(values, best, fmts))
+                   + r" \\")
     tex += [r"\hline", r"\end{tabular}"]
     return "\n".join(md), "\n".join(tex)
 
@@ -112,11 +121,13 @@ def build(root: Path | None = None) -> dict:
     h1, r1 = main_table(root / "eval")
     h2, r2 = agent_table(root)
     h3, r3 = oaei_table(root)
-    parts = [render("Table 1. Held-out and zero-shot decisions (F1 ×100; ICD bridge: accuracy ×100) and closed-book "
-                    "knowledge (token F1 ×100).", h1, r1, "{:.1f}"),
-             render("Table 2. The same models as mini-SWE-agents (Docker sandbox, Anatomy).", h2, r2, "{:.1f}"),
-             render("Table 3. Whole Anatomy alignment in OAEI form.", h3, r3, "{:.3f}",
-                    higher=[False, True, True, True, True, True])]
+    parts = [render("Table 1. Held-out and zero-shot decisions (F1 ×100), ICD-10→11 accuracy ×100, SNOMED→ICD-11 "
+                    "bridge recovery ×100 (held-out ICD-10 categories; retrieval misses count as failures) and "
+                    "closed-book knowledge (token F1 ×100).", h1, r1, "{:.1f}"),
+             render("Table 2. The same models as mini-SWE-agents (Docker sandbox, Anatomy).", h2, r2,
+                    ["{:.1f}", "{:.1f}", "{:.0f}"], higher=[True, True, None]),
+             render("Table 3. Whole Anatomy alignment in OAEI form.", h3, r3, ["{:.0f}", "{:.0f}"] + ["{:.3f}"] * 4,
+                    higher=[False, None, True, True, True, True])]
     md = "\n\n".join(p[0] for p in parts) + "\n\n_“–” = not measured. DRAL-OA row: official OAEI 2025 results (CEUR Vol-4144)._\n"
     tex = "\n\n".join(p[1] for p in parts) + "\n"
     out = root / "eval"

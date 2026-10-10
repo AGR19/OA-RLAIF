@@ -22,16 +22,20 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 ## 2. Run (inside tmux; every stage checks the budget first)
 | Step | Command | GPUs | Est. |
 |---|---|---|---|
-| Dry run (sets step counts) | `scripts/35_dry_run.sh` | 0–3 | 30 m |
+| GGUF check (base model) | `scripts/72_gguf_check.sh` | — | 15 m |
+| Dry run (sets step counts, checks the judge) | `scripts/35_dry_run.sh` | 0–3 | 40 m |
 | Baseline (base E4B) | `scripts/30_baseline.sh` | 3 (vLLM) | 45 m |
-| Stage 1 SDFT/OPSD | `scripts/40_sdft.sh` | 0–2 train, 3 vLLM | ~6 h |
-| Eval SDFT | `scripts/50_eval.sh sdft` | 0–3 | 45 m |
-| Stage 2 GRPO | `scripts/60_grpo.sh` | 0–2 train, 3 vLLM | ~6 h |
-| Eval GRPO + full mappings | `scripts/50_eval.sh grpo --full` | 0–3 | 75 m |
+| Stage 1 OPSD | `scripts/40_sdft.sh` | 0–2 train, 3 vLLM | ≤ 4 h |
+| Eval OPSD | `scripts/50_eval.sh sdft` | 0–3 | 45 m |
+| Stage 2 GRPO | `scripts/60_grpo.sh` | 0–2 train, 3 vLLM + judge | ≤ 4 h |
+| Eval GRPO + full mappings | `scripts/50_eval.sh grpo --full` | 0–3 | 70 m |
 | Export (merge, GGUF, Ollama) | `scripts/70_export.sh` | 0 | 30 m |
-| Push adapters (private) | `scripts/80_verify_and_push.sh --models` | — | 10 m |
+| Push GGUF + adapters (private) | `python -m oa_rlaif.data.hf_push --models` | — | 15 m |
+| SFT comparison (compulsory) | `scripts/40_sdft.sh --mode sft` | 0–2 | ≤ 2 h |
+| Eval SFT | `scripts/50_eval.sh sft` | 0–3 | 45 m |
+| Results tables + push | `python -m oa_rlaif.eval.report`, then `hf_push --results` | — | 7 m |
 
-**Budget.** At ~$27.16/h, the plan is ≈16 h ≈ $440 plus API. `outputs/budget_ledger.json` accumulates every run. At $450 the trainers save a checkpoint and stop.
+**Budget.** At ~$27.16/h, the plan is ≈15 h ≈ $411. `outputs/budget_ledger.json` accumulates every run. At $450 the trainers save a checkpoint and stop.
 
 **Watching for cheating** during GRPO (step 14 of the original plan):
 - `outputs/grpo_samples/step_*.jsonl`;
@@ -58,7 +62,7 @@ git clone https://github.com/AGR19/OA-RLAIF.git && cd OA-RLAIF    # username AGR
 scripts/lambda_all.sh                 # asks once for the Hugging Face token, then runs everything
 ```
 
-The terminal shows a live dashboard: the total progress bar, the current step (e.g. "STEP 7/12 sdft") with its own bar, elapsed time, ETA, GPU spend so far and the latest log line. Each step's full output is in `outputs/logs/stage_<step>.log`.
+The terminal shows a live dashboard: the total progress bar, the current step (e.g. "STEP 7/16 sdft") with its own bar, elapsed time, ETA, GPU spend so far and the latest log line. Each step's full output is in `outputs/logs/stage_<step>.log`.
 
 | # | Step | What happens | Est. |
 |---|---|---|---|
@@ -66,19 +70,23 @@ The terminal shows a live dashboard: the total progress bar, the current step (e
 | 2 | data | download the private datasets | 5 m |
 | 3 | check_env | 4 GPUs, libraries, data, Docker agent test. **Stops here if anything is wrong** | 5 m |
 | 4 | gguf_check | convert the base model to GGUF (proves export works before training) | 15 m |
-| 5 | dry_run | time SDFT and GRPO with the judge; plan step counts that fit the budget | 35 m |
+| 5 | dry_run | time OPSD, SFT and GRPO (with the judge); plan step counts that fit the time slots | 40 m |
 | 6 | baseline | base E4B: held-out sets + agent episodes | 45 m |
-| 7 | sdft | Stage 1 on-policy self-distillation, then merge | ~5.5 h |
-| 8 | eval_sdft | SDFT model: held-out sets + agent episodes | 1 h |
-| 9 | grpo | Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), then merge | ~5.5 h |
-| 10 | eval_grpo | held-out, zero-shot, full Anatomy alignment (OAEI row), agent episodes | 1.5 h |
-| 11 | export | GGUF Q4_K_M + Ollama Modelfile (base + SDFT + GRPO in one file) | 30 m |
-| 12 | push | private HF: `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo`, dataset `oa-rlaif-results` | 15 m |
+| 7 | sdft | Stage 1 OPSD (on-policy self-distillation; the teacher sees the gold answer), then merge | ≤ 4 h |
+| 8 | eval_sdft | OPSD model: held-out sets + agent episodes | 45 m |
+| 9 | grpo | Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), then merge | ≤ 4 h |
+| 10 | eval_grpo | held-out, zero-shot, ICD-11↔SNOMED, full Anatomy alignment (OAEI row), agent episodes | 70 m |
+| 11 | export | GGUF Q4_K_M + Ollama Modelfile (base + OPSD + GRPO in one file) | 30 m |
+| 12 | push | private HF: `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo` (the GGUF is safe from here) | 15 m |
+| 13 | sft | **compulsory** SFT comparison: same rows and same step count as OPSD, then merge | ≤ 2 h |
+| 14 | eval_sft | SFT model: held-out sets + agent episodes | 45 m |
+| 15 | report | results tables: base / SFT / OPSD / OPSD→GRPO, ICD-11↔SNOMED, agents, OAEI row | 2 m |
+| 16 | results | private HF dataset `oa-rlaif-results` (tables, metrics, ICD-11↔SNOMED SSSOM) | 5 m |
 
-The total is about 17 h and at most $450 (the budget guard stops every step there). Steps 3–5 are the safety checks: a problem shows within the first hour (about $30).
+The total is about 15 h and about $411; the budget guard stops every billable step at $450. Steps 3–5 are the safety checks: a problem shows within the first hour (about $30). The time slots (OPSD 4 h, GRPO 4 h, SFT 2 h) are in `configs/train.yaml`; the dry run turns them into step counts (`outputs/step_plan.json`).
+
+The SFT arm is part of every run (it is not optional). It runs after the GGUF push, so a late problem cannot lose the main model.
 
 **If a step fails**, the dashboard marks it ✖ and prints the end of its log. Fix the cause, then run `scripts/lambda_all.sh` again; finished steps are skipped.
 
 **When it prints DONE**, your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-gguf` (private). **Terminate the instance** in the Lambda console; billing continues until you do.
-
-Optional: `RUN_SFT_ARM=1 scripts/lambda_all.sh` adds the plain-SFT comparison model (about 3 more GPU hours, ~$80). This can exceed the $450 stop.

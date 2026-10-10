@@ -18,3 +18,4 @@ sentence-transformers
 faiss-cpu
 -e ./third_party/mini-swe-agent
 pytest
+tensorboard

@@ -60,6 +60,7 @@ def main() -> int:
     parser.add_argument("--source", type=Path)
     parser.add_argument("--target", type=Path)
     parser.add_argument("--reference", type=Path)
+    parser.add_argument("--limit", type=int, default=0, help="first N source classes only (smoke test)")
     parser.add_argument("--trivial", type=Path, help="OAEI trivial alignment for Recall+ (default: trivial.rdf next to the reference)")
     parser.add_argument("--name", required=True)
     parser.add_argument("--k", type=int, default=20)
@@ -70,6 +71,8 @@ def main() -> int:
     source = OntologyParser().parse(args.source)
     target = OntologyParser().parse(args.target)
     episodes = episodes_for(source, target, args.k)
+    if args.limit:
+        episodes = episodes[: args.limit]
     generator = Generator(args.model, 256, args.tp)
     replies = generator.chat([decision_messages(e) for e in episodes])
     alignments = extract(episodes, replies, args.threshold, one_to_one=True)

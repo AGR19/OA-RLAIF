@@ -2,12 +2,12 @@
 
 ## Goal (measurable)
 
-Train **Gemma 4 E4B** (LoRA) with **on-policy self-distillation** (SDFT/OPSD, TRL `SDFTTrainer`), then **GRPO** (TRL `GRPOTrainer` + vLLM). The GRPO reward is the **DRAL-OA reward** (Eq. 1 InfoNCE over the mapping layer) plus an **A4B judge**. The trained model must produce **full ontology alignments** (SSSOM TSV + OAEI RDF) across every supplied domain. That includes **ICD-11↔SNOMED CT** via the WHO ICD-10 bridge.
+Train **Gemma 4 E4B** (LoRA) with **on-policy self-distillation** (OPSD, TRL `SDFTTrainer`), then **GRPO** (TRL `GRPOTrainer` + vLLM). The GRPO reward is the **DRAL-OA reward** (Eq. 1 InfoNCE over the mapping layer) plus an **A4B judge**. The trained model must produce **full ontology alignments** (SSSOM TSV + OAEI RDF) across every supplied domain. That includes **ICD-11↔SNOMED CT** via the WHO ICD-10 bridge.
 
 **Success** is measured on the held-out 20% and on whole zero-shot ontology pairs. All of these must hold:
-1. The GRPO model beats the base E4B and the SDFT checkpoint on P/R/F1 (OAEI-style).
+1. The GRPO model beats the base E4B and the OPSD checkpoint on P/R/F1 (OAEI-style).
 2. On Anatomy, it beats DRAL-OA's official OAEI 2025 result: **F 0.828** (P 0.83, R 0.827).
-3. It keeps closed-book knowledge from the datasource and ontology facts. Retention must be at least the SDFT checkpoint's, within the CI.
+3. It keeps closed-book knowledge from the datasource and ontology facts. Retention must be at least the OPSD checkpoint's, within the CI.
 4. It recovers **≥ X%** of the held-out ICD bridge links. X is fixed after the baseline run and recorded in `MEMORY.md`.
 5. Total spend is **≤ $500**: Lambda GPU time plus any API calls. Question generation uses the AI Studio free tier.
 
@@ -31,7 +31,7 @@ Only the held-out and zero-shot numbers are headline numbers. Report everything 
   - Local: the policy (served by local vLLM; `localhost` URLs are not APIs), the sandbox (Docker with `--network none`), training, embeddings (FastText `fast.bin` copied over, not downloaded), node2vec and mini-swe-agent (vendored in `third_party/`, installed from source).
   - One-time setup downloads on the GPU box: Gemma 4 E4B and 26B-A4B (51.6 GB) weights from HF, the pinned wheels and the Docker base image. After setup, set `HF_HUB_OFFLINE=1` and `LITELLM_LOCAL_MODEL_COST_MAP=True`.
   - Publishing (GitHub, HF datasets) is a separate step that needs the user's OK.
-- **No RAG at inference.** Knowledge goes into the weights through SDFT/OPSD. Privileged context is used only by the frozen teacher during training.
+- **No RAG at inference.** Knowledge goes into the weights through OPSD. Privileged context is used only by the frozen teacher during training.
 - **Splits:** group-level 80/20. A source entity never appears in two splits. A concept is grouped across all languages, and SNOMED IRIs are grouped across Bio-ML pairs. Whole pairs are held out for zero-shot testing. The DRAL mapping layer is fit on train references only.
 - **Gates before any push**, GitHub or HF:
   - `pytest` is green;
@@ -54,11 +54,15 @@ On the Mac: `10_prepare_data.sh` → `15_datasource.sh` → `20_fit_dral.sh` →
 On Lambda: `scripts/lambda_all.sh` (one resumable command; see `LAMBDA_RUNBOOK.md`). Stages:
 1. setup, then pull the private HF datasets;
 2. `00_check_env.sh`, then `72_gguf_check.sh`;
-3. `35_dry_run.sh` (times SDFT and GRPO with the judge, then plans the steps);
+3. `35_dry_run.sh` (times OPSD, SFT and GRPO with the judge, then plans the steps);
 4. `30_baseline.sh`;
 5. `40_sdft.sh`, then `50_eval.sh sdft`;
 6. `60_grpo.sh`, then `50_eval.sh grpo --full`;
-7. `70_export.sh`, then the private model push.
+7. `70_export.sh`, then the private model push;
+8. compulsory SFT comparison: `40_sdft.sh --mode sft` (same rows and steps as OPSD), then `50_eval.sh sft`;
+9. `oa_rlaif.eval.report` (tables), then the private results push.
+
+Mac end-to-end check of the same code paths (tiny Gemma 4, CPU, stub judge, real Docker agent): `scripts/smoke_mac.sh`.
 
 ## Data coverage (all raw data is used)
 
@@ -84,7 +88,7 @@ Every decision prompt carries the source and target **modelling profiles** (`dat
 Private repos only. `scripts/80_verify_and_push.sh --hf` creates and uploads them once the gates pass.
 - Datasets: `{ns}/oa-rlaif-datasource`, `-sdft`, `-grpo`, `-dral-reward`, `-icd-triangulation`.
 - Models (pushed by `lambda_all.sh` at the end):
-  - `{ns}/oa-rlaif-e4b-gguf`: Q4_K_M + Modelfile; base + SDFT + GRPO merged.
+  - `{ns}/oa-rlaif-e4b-gguf`: Q4_K_M + Modelfile; base + OPSD + GRPO merged.
   - `{ns}/oa-rlaif-e4b-sdft` and `-grpo`: LoRA adapters.
   - Dataset `{ns}/oa-rlaif-results`.
 

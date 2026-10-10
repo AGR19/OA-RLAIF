@@ -270,3 +270,14 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   6. Added an early base-model GGUF check.
   7. The SFT comparison arm is opt-in (`RUN_SFT_ARM=1`, ~3 GPU h).
 - **The GGUF combines** base E4B + SDFT (merged) + GRPO trained on top: DRAL-OA reward + A4B judge, i.e. RLAIF.
+
+## 2026-10-10 — SFT is compulsory; Mac end-to-end smoke test (user: "verify the full script ... do sft also make it compulsory not optional")
+- **SFT comparison arm is compulsory** (supersedes "opt-in, `RUN_SFT_ARM=1`" above). `lambda_all.sh` stages 13–14 (`sft`, `eval_sft`) always run, after the GGUF push, so a late failure cannot lose the main model. Same rows as OPSD; steps = min(OPSD steps, 2 h slot) (`plan_sft_steps`). Time slots: OPSD 4 h, GRPO 4 h, SFT 2 h. Plan: 16 stages, ~15.1 h, ~$411.
+- **`scripts/smoke_mac.sh`**: runs the Lambda stage order on the Mac with the real code paths. It uses a tiny random Gemma 4 (26.2M params, built from the cached E4B config), CPU training without vLLM, and a stub OpenAI server for the judge and the agent model. Data, reward, Docker sandbox, mini-SWE-agent loop and report are real. Outputs go to `outputs/smoke/`.
+- **Bugs the smoke test found (each would have crashed on Lambda or on Ollama):**
+  1. `SDFTConfig(warmup_ratio=...)` is rejected by TRL 1.15 / transformers 5. Fix: `warmup_steps=<ratio>` (a float < 1 is read as a ratio).
+  2. `report_to=["tensorboard"]` without tensorboard in the lock. Fix: added tensorboard (lock additions only: absl-py, markdown, tensorboard, tensorboard-data-server, werkzeug).
+  3. SFT with `assistant_only_loss=True` fails because the Gemma 4 chat template has no `{% generation %}` markers. Fix: conversational prompt/completion rows + `completion_only_loss=True`.
+  4. Modelfile `PARAMETER stop "<end_of_turn>"` is Gemma 2/3. Gemma 4 ends a turn with `<turn|>` (id 106; E4B `eos_token_id` = [1, 106]). Fixed in `release.write_modelfile`.
+- **Mac-only gap:** TRL 1.15 SFTTrainer always computes its loss with a Triton kernel, and PyTorch ships Triton on Linux only. The smoke run uses a plain-PyTorch stand-in (`dev/cpu_kernels.py`, only when `OA_SMOKE=1` and the kernel is missing). Lambda uses the real kernel (triton 3.7.1 in the lock).
+- **Judge path check:** invalid replies score 0 without a judge call, so a model that writes only invalid replies never exercises the judge. `python -m oa_rlaif.dev.reward_check` scores gold replies through the GRPO rewards. It runs in the smoke test (stub judge) and in `35_dry_run.sh` right after `judge_up` (local A4B), before any GRPO step. Smoke result: judge 0.7 per valid reply (stub SCORE 7), 0 fallbacks; unlabeled episodes give R_task = 0.3·r_DRAL, as designed.

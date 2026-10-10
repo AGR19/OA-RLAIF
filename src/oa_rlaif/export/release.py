@@ -28,9 +28,12 @@ def merge(adapter: Path, out: Path, base: str | None = None) -> None:
     merged = PeftModel.from_pretrained(model, str(adapter)).merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
     merged.save_pretrained(str(out), safe_serialization=True)
-    from transformers import AutoProcessor
+    from transformers import AutoProcessor, AutoTokenizer
 
-    AutoProcessor.from_pretrained(cfg["model"]["id"]).save_pretrained(str(out))
+    try:
+        AutoProcessor.from_pretrained(cfg["model"]["id"]).save_pretrained(str(out))
+    except Exception:  # text-only checkpoint (smoke test)
+        AutoTokenizer.from_pretrained(cfg["model"]["id"]).save_pretrained(str(out))
 
 
 def gguf(merged: Path, out: Path, quant: str = "Q4_K_M") -> Path:
@@ -44,13 +47,19 @@ def gguf(merged: Path, out: Path, quant: str = "Q4_K_M") -> Path:
     if quantize is None:
         raise SystemExit("llama-quantize not built; run `cmake -B build && cmake --build build -j` in LLAMA_CPP_DIR")
     subprocess.run([str(quantize), str(f16), str(final), quant], check=True)
-    (out / "Modelfile").write_text(
-        f"FROM ./{final.name}\n"
+    write_modelfile(out, final.name)
+    return final
+
+
+def write_modelfile(out: Path, gguf_name: str) -> Path:
+    path = out / "Modelfile"
+    path.write_text(
+        f"FROM ./{gguf_name}\n"
         "PARAMETER temperature 0\n"
         "PARAMETER num_ctx 8192\n"
-        "PARAMETER stop \"<end_of_turn>\"\n"
+        "PARAMETER stop \"<turn|>\"\n"  # Gemma 4 end-of-turn token (id 106); Gemma 2/3 used <end_of_turn>
         "SYSTEM \"You are OA-RLAIF, an ontology alignment agent.\"\n")
-    return final
+    return path
 
 
 def main() -> int:

@@ -32,7 +32,7 @@ sdft:
   max_completion_length: 384
   num_generations: 1                    # one on-policy sample per prompt (SDFT/OPSD)
   temperature: 1.0
-  teacher_model_kind: base              # frozen initial weights (SDFT paper); ablation: ema
+  teacher_model_kind: base              # OPSD: frozen initial weights, conditioned on the ground-truth answer
   distillation_mode: topk_logits
   distillation_topk: 100
   distillation_alpha: 0.5
@@ -40,7 +40,11 @@ sdft:
   save_steps: 500
   logging_steps: 10
   max_steps: -1                         # -1: planned from the dry run (train.common.plan_steps)
-  time_budget_hours: 6.0                # SDFT wall-clock slot on 4xB200; steps = min(2 epochs, what fits)
+  time_budget_hours: 4.0                # OPSD wall-clock slot on 4xB200; steps = min(2 epochs, what fits)
+
+sft:                                    # compulsory comparison row: plain SFT on the same rows as OPSD
+  time_budget_hours: 2.0                # same number of steps as OPSD (fair comparison), capped by this slot
+  max_steps: -1
 
 grpo:
   output_dir: outputs/checkpoints/grpo
@@ -60,7 +64,7 @@ grpo:
   save_steps: 200
   logging_steps: 5
   max_steps: -1                         # -1: planned from the dry run (train.common.plan_steps)
-  time_budget_hours: 6.0                # GRPO wall-clock slot, judge included (the dry run measures with the judge)
+  time_budget_hours: 4.0                # GRPO wall-clock slot, judge included (the dry run measures with the judge)
   sample_dump_every: 50                 # write completions for manual reading (reward-hacking checks)
   dral_temperature: 0.1
   judge_fraction: 1.0                   # share of prompts judged (whole groups); size it to the API quota, see LAMBDA_RUNBOOK

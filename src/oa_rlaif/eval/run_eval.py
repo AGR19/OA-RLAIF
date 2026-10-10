@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 from collections import defaultdict
@@ -38,7 +39,34 @@ def token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+class HFGenerator:
+    """Smoke test only (OA_SMOKE=1): greedy generation with transformers on CPU instead of vLLM."""
+
+    def __init__(self, model: str, max_new_tokens: int):
+        from transformers import AutoModelForImageTextToText, AutoTokenizer
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model)
+        self.model = AutoModelForImageTextToText.from_pretrained(model)
+        self.max_new_tokens = max_new_tokens
+
+    def chat(self, conversations: list[list[dict]]) -> list[str]:
+        out = []
+        for messages in conversations:
+            ids = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt",
+                                                     enable_thinking=False)
+            ids = ids["input_ids"] if hasattr(ids, "keys") else ids
+            gen = self.model.generate(ids, max_new_tokens=self.max_new_tokens, do_sample=False)
+            out.append(self.tokenizer.decode(gen[0, ids.shape[1]:], skip_special_tokens=True))
+        return out
+
+
 class Generator:
+    def __new__(cls, model: str, max_new_tokens: int, tensor_parallel: int = 1):
+        import os
+        if os.environ.get("OA_SMOKE") == "1":
+            return HFGenerator(model, min(max_new_tokens, 24))
+        return super().__new__(cls)
+
     def __init__(self, model: str, max_new_tokens: int, tensor_parallel: int = 1):
         from vllm import LLM, SamplingParams
 
@@ -74,6 +102,39 @@ def decision_metrics(episodes: list[dict], replies: list[str], trivial: set | No
             "recall_plus": scores["Recall+"], "predicted": scores["Size"], "reference": scores["reference"]}
 
 
+def icd_metrics(rows: list[dict], replies: list[str], out: Path) -> dict:
+    """Per ICD pair. For SNOMED -> ICD-11 also the bridge recovery: the share of held-out SNOMED concepts whose
+    predicted ICD-11 category is one of its composed links (retrieval misses count as failures), the retrieval
+    ceiling, and the predictions as SSSOM (ICD-11 skos:narrowMatch SNOMED), i.e. the predicted ICD-11<->SNOMED map."""
+    from ..ontology.alignment_io import write_sssom
+
+    metrics = {}
+    for pair in sorted({e["pair_id"] for e in rows}):
+        sub = [(e, r) for e, r in zip(rows, replies) if e["pair_id"] == pair]
+        m = decision_metrics([e for e, _ in sub], [r for _, r in sub])
+        if pair.endswith("snomed-to-icd11"):
+            hits, links = 0, []
+            for e, reply in sub:
+                d = parse_decision(reply, e)
+                picks = [c for c in (d.choices or (d.choice,)) if d.valid and c and c != "NONE"]
+                hits += bool(set(picks) & set(e.get("gold_all") or []))
+                name = lambda card: next((l[6:] for l in card.splitlines() if l.startswith("name: ")), "")  # noqa: E731
+                cards = {c["iri"]: c["card"] for c in e["candidates"]}
+                links += [{"subject_id": p, "subject_label": name(cards.get(p, "")), "predicate_id": "skos:narrowMatch",
+                           "object_id": e["source_iri"], "object_label": name(e["source_card"]),
+                           "mapping_justification": "semapv:UnspecifiedMatching",
+                           "confidence": d.confidence if d.confidence is not None else 1.0,
+                           "mapping_tool": "oa-rlaif-e4b", "comment": "held-out ICD-10 categories"} for p in picks]
+            m["bridge_recovery"] = hits / max(1, len(sub))
+            m["retrieval_ceiling"] = sum(bool(e.get("gold")) for e, _ in sub) / max(1, len(sub))
+            write_sssom(out / "icd11_snomed_predicted.sssom.tsv", links,
+                        {"mapping_set_id": "https://github.com/AGR19/OA-RLAIF/icd11_snomed_predicted",
+                         "license": "SNOMED CT affiliate licence applies; private use only",
+                         "comment": "Model predictions for held-out SNOMED concepts; ICD-11 category classifies the concept."})
+        metrics[f"heldout_icd:{pair.split('/')[-1]}"] = m
+    return metrics
+
+
 def anatomy_trivial() -> set:
     path = raw_dir() / "anatomy-dataset-2" / "trivial.rdf"
     return {(a.source_iri, a.target_iri) for a in read_alignment(path)} if path.exists() else set()
@@ -97,7 +158,8 @@ def main() -> int:
         for path in files:
             rows = list(read_jsonl(path))
             random.Random(11).shuffle(rows)
-            rows = rows[: args.cap]
+            if path.stem != "heldout_icd" or os.environ.get("OA_SMOKE") == "1":  # ICD set: in full on the GPU box
+                rows = rows[: args.cap]
             if path.stem.startswith("closed_book"):
                 replies = gen.chat([[{"role": "system", "content": KNOWLEDGE_SYSTEM},
                                      {"role": "user", "content": r["prompt"]}] for r in rows])
@@ -107,9 +169,8 @@ def main() -> int:
                 replies = gen.chat([decision_messages(e) for e in rows])
                 trivial = anatomy_trivial() if "anatomy" in path.stem else None
                 results["decisions"][path.stem] = decision_metrics(rows, replies, trivial)
-                by_family = defaultdict(list)
-                for e, reply in zip(rows, replies):
-                    by_family[e["family"]].append((e, reply))
+                if path.stem == "heldout_icd":
+                    results["decisions"].update(icd_metrics(rows, replies, out))
             with (out / f"{path.stem}.predictions.jsonl").open("w") as f:
                 for r, reply in zip(rows, replies):
                     f.write(json.dumps({"id": r["id"], "reply": reply}) + "\n")

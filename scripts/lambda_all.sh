@@ -12,16 +12,18 @@
 #   2 data        private HF datasets -> data/
 #   3 check_env   4 GPUs, libraries, data, Docker agent sandbox (stops here if anything is missing)
 #   4 gguf_check  converts the BASE model to GGUF first, so export problems show before training
-#   5 dry_run     times SDFT and GRPO (with the judge) and plans the step counts to fit the budget
+#   5 dry_run     times OPSD, SFT and GRPO (with the judge) and plans the step counts to fit the budget
 #   6 baseline    base E4B: held-out sets + mini-SWE-agent episodes
-#   7 sdft        Stage 1 on-policy self-distillation, merged -> outputs/merged/sdft
-#   8 eval_sdft   SDFT model: held-out sets + agent episodes
+#   7 sdft        Stage 1 OPSD (teacher sees the gold answer), merged -> outputs/merged/sdft
+#   8 eval_sdft   OPSD model: held-out sets + agent episodes
 #   9 grpo        Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), merged -> outputs/merged/grpo
-#  10 eval_grpo   GRPO model: held-out, zero-shot, full Anatomy alignment (OAEI row), agent episodes
-#  11 report      results tables (base vs SDFT vs GRPO; agents; OAEI Anatomy row) -> outputs/eval/report.{md,tex}
-#  12 export      GGUF Q4_K_M + Ollama Modelfile (base + SDFT + GRPO in one file)
-#  13 push        private HF: oa-rlaif-e4b-gguf, oa-rlaif-e4b-sdft, oa-rlaif-e4b-grpo, oa-rlaif-results
-#  (optional)     RUN_SFT_ARM=1 adds the plain-SFT comparison model (~3 GPU h, ~$80)
+#  10 eval_grpo   GRPO model: held-out, zero-shot, ICD-11<->SNOMED, full Anatomy alignment (OAEI row), agent
+#  11 export      GGUF Q4_K_M + Ollama Modelfile (base + OPSD + GRPO in one file)
+#  12 push        private HF: oa-rlaif-e4b-gguf, oa-rlaif-e4b-sdft, oa-rlaif-e4b-grpo (the GGUF is safe from here)
+#  13 sft         compulsory SFT comparison: same rows and steps as OPSD, merged -> outputs/merged/sft
+#  14 eval_sft    SFT model: held-out sets + agent episodes
+#  15 report      results tables: base / SFT / OPSD / GRPO, ICD-11<->SNOMED, agents, OAEI row
+#  16 results     private HF dataset oa-rlaif-results (tables, metrics, ICD-11<->SNOMED SSSOM, alignments)
 #
 # Resumable: finished steps are skipped on the next run (outputs/stages/<step>.done). After a failure the dashboard
 # shows the end of that step's log; fix the cause and run the same command again.
@@ -71,17 +73,17 @@ stage dry_run    scripts/35_dry_run.sh
 stage baseline   scripts/30_baseline.sh
 stage sdft       scripts/40_sdft.sh
 stage eval_sdft  scripts/50_eval.sh sdft
-if [ "${RUN_SFT_ARM:-0}" = 1 ]; then
-  stage sft_arm  scripts/40_sdft.sh --mode sft
-  stage eval_sft scripts/50_eval.sh sft
-fi
 stage grpo       scripts/60_grpo.sh
 stage eval_grpo  scripts/50_eval.sh grpo --full
-stage report     bash -c 'A=data/raw/anatomy-dataset-2; PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.align --backend lexical \
-                   --model lexical --source $A/mouse.owl --target $A/human.owl --reference $A/reference.rdf --format tsv \
-                   --no-coherence --out outputs/align/anatomy_lexical_baseline && PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.report' 
 stage export     scripts/70_export.sh
 stage push       env PYTHONPATH=src .venv/bin/python -m oa_rlaif.data.hf_push --models
+# the GGUF is now safe on Hugging Face; the compulsory SFT comparison row follows
+stage sft        scripts/40_sdft.sh --mode sft
+stage eval_sft   scripts/50_eval.sh sft
+stage report     bash -c 'A=data/raw/anatomy-dataset-2; PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.align --backend lexical \
+                   --model lexical --source $A/mouse.owl --target $A/human.owl --reference $A/reference.rdf --format tsv \
+                   --no-coherence --out outputs/align/anatomy_lexical_baseline && PYTHONPATH=src .venv/bin/python -m oa_rlaif.eval.report'
+stage results    env PYTHONPATH=src .venv/bin/python -m oa_rlaif.data.hf_push --results
 
 echo
 echo "DONE. Your GGUF: https://huggingface.co/$NS/oa-rlaif-e4b-gguf (private)"
