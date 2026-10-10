@@ -1,0 +1,19 @@
+% Standalone build of the OA-RLAIF method figure. The PDF page is sized exactly to the drawing.
+% Build: pdflatex -interaction=nonstopmode oa_rlaif_pipeline.tex
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{tikz}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc,shapes.symbols,patterns}
+\input{oa_rlaif_colors.tex}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}\setlength{\textwidth}{50cm}\setlength{\textheight}{50cm}
+\newsavebox\figbox
+\begin{document}
+\sbox\figbox{\input{oa_rlaif_pipeline_body.tex}}
+\pdfpagewidth=\dimexpr\wd\figbox+6pt\relax
+\pdfpageheight=\dimexpr\ht\figbox+\dp\figbox+6pt\relax
+\hoffset=-1in \voffset=-1in
+\shipout\vbox{\kern3pt\hbox{\kern3pt\usebox\figbox}}
+\end{document}

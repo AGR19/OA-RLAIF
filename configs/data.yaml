@@ -1,0 +1,40 @@
+# Data build configuration (python -m oa_rlaif.data.build). All counts are per source unless stated.
+seed: 13
+test_fraction: 0.20          # group-level held-out share (connected components of gold "=" links)
+split_salt: oa-rlaif-v1
+
+# Whole pairs never trained on (zero-shot test); their concepts are forced to test everywhere.
+zero_shot_pairs:
+  - biodiv/flopo-pto
+  - dh/dhcs2_tadirah-unesco
+  - complex_om/hydrography/cree-swo
+  - cyber/iotsec-uco              # unseen domain (cybersecurity); ranking test, never trained on
+
+episodes:
+  k: 20                      # candidates shown per decision
+  deliberate_none_rate: 0.10 # training only
+  insert_missing_gold_rate: 0.70
+  max_hard_negatives: 3
+  unlabeled_rate: 0.10
+  # Retrieval choices tuned on TRAIN samples only (2026-10-10), recall of the right answer in the candidate list:
+  #   anatomy lexical@20 0.978 -> @40 0.990;  multifarm lexical@20 0.298 -> semantic@20 0.917;
+  #   dh_multiling lexical@20 0.556 -> semantic@20 0.789;  biodiv / dh: lexical stays best or equal.
+  k_by_family: {anatomy: 40}
+  retrieval_by_family: {multifarm: semantic, dh_multiling: semantic}
+  semantic_model: intfloat/multilingual-e5-small
+
+facts:
+  default_cap: 2000          # classes sampled per ontology for closed-book fact prompts
+  caps:                      # larger ontologies get larger samples (still bounded for the SDFT budget)
+    snomed-ct-us: 40000
+    Thesaurus: 20000         # NCIT (Bio-ML)
+    fma: 15000
+    doid: 8000
+    icd11: 15000
+    ICD10CM: 15000
+    human: 3304              # Anatomy: all classes
+    mouse: 2744
+
+passages:
+  size_chars: 1500
+  question_test_fraction: 0.20   # closed-book test = held-out QUESTIONS; every passage is trained on

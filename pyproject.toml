@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oa-rlaif"
+version = "0.1.0"
+description = "Gemma 4 E4B ontology alignment: on-policy self-distillation, then GRPO with the DRAL-OA reward and an A4B judge."
+requires-python = ">=3.11"
+license = { text = "Code: MIT. Data: see docs/DATA_CARD.md (licensed sources are never redistributed)." }
+dependencies = [
+  "rdflib>=7.1",
+  "lxml>=5.1",
+  "numpy>=1.26",
+  "pyyaml>=6",
+  "rich>=13",
+  "networkx>=3.2",
+  "scikit-learn>=1.4",
+  "openai>=1.40",
+  "huggingface_hub>=0.30",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+# Embeddings and the DRAL-OA mapping layer (CPU is fine; runs on the Mac before renting GPUs).
+reward = ["torch>=2.4", "gensim>=4.3", "pecanpy>=2.0", "fasttext-wheel>=0.9.2", "sentence-transformers>=3.0"]
+# GPU training on Lambda. Exact pins live in requirements-train.txt.
+train = ["torch>=2.8", "transformers>=5.0", "trl>=1.15", "peft>=0.17", "accelerate>=1.10", "datasets>=4.0", "vllm>=0.19.1"]
+agent = ["mini-swe-agent>=2.4"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+om = "oa_rlaif.harness.om_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "third_party/mini-swe-agent/src"]
+markers = ["raw: needs the raw ontology folder (skipped when OA_RAW_DIR is absent)"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

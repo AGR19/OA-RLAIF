@@ -1,0 +1,97 @@
+   cached  christiano2017
+   cached  ziegler2019
+   cached  stiennon2020
+   cached  ouyang2022
+   cached  bai2022hh
+   cached  bai2022cai
+   cached  lee2024rlaif
+   cached  rafailov2023
+   cached  schulman2017
+   cached  shao2024
+   cached  deepseek2025r1
+   cached  yu2025dapo
+   cached  liu2025drgrpo
+   cached  zheng2023judge
+   cached  yuan2024selfreward
+   cached  gao2023overopt
+   cached  skalse2022hacking
+   cached  casper2023open
+   cached  lightman2024verify
+   cached  lambert2024tulu3
+   cached  williams1992
+   cached  hu2022lora
+   cached  dettmers2023qlora
+   cached  yang2024sweagent
+   cached  kwon2023vllm
+   cached  hinton2015kd
+   cached  kim2016seqkd
+   cached  ross2011dagger
+   cached  agarwal2024gkd
+   cached  gu2024minillm
+   cached  ko2024distillm
+   cached  snell2022context
+   cached  gemma2024gemma2
+   cached  yang2025qwen3
+   cached  zhao2026opsd
+   cached  shenfeld2026sdft
+   cached  sdpo2026
+   cached  opcd2026
+   cached  mixsd2026
+   cached  opdsurvey2026
+   cached  opdbeforerl2026
+   cached  sddegrade2026
+   cached  denser2026
+   cached  privsol2026
+   cached  tmblog2025
+   cached  euzenat2007book
+   cached  euzenat2013book
+   cached  shvaiko2013tkde
+   cached  doan2003glue
+   cached  jimenez2011logmap
+   cached  faria2013aml
+   cached  kolyvakis2018deepalign
+   cached  he2022bertmap
+   cached  he2022bioml
+   cached  chen2021distant
+   cached  chen2021owl2vec
+   cached  liu2021sapbert
+   cached  grover2016node2vec
+   cached  chen2017mtranse
+   cached  sun2018bootea
+   cached  wang2018gcnalign
+   cached  zeng2021ceaff
+   cached  xue2023drlom
+   cached  touati2023drl
+   cached  chakraborty2021ontoconnect
+   cached  zaeifi2024dral
+   cached  ravishankar2025dral
+   cached  hertling2023olala
+   cached  giglou2024llms4om
+   cached  he2023llmoa
+   cached  qiang2025agentom
+   cached  matentzoglu2022sssom
+   cached  portisch2022bk
+   cached  he2024deeponto
+   cached  amir2023truveta
+   cached  iyer2021veealign
+   cached  meilicke2007logic
+ verified  hertling2019melt             10.1007/978-3-030-33220-4_17
+  dropped  bodenreider2005mice          no DOI found by Crossref title search
+   cached  sousa2025ftsynthetic
+   cached  taboada2025mila
+   cached  qiang2025oaeillmt
+   cached  liu2025ontotune
+   cached  selfdemo2026schema
+   cached  clinicalqa2026ontoreward
+   cached  hu2025matchretrieval
+ verified  beisswanger2012qc            10.1186/2041-1480-3-S1-S4
+ verified  horridge2011owlapi           10.3233/sw-2011-0025
+ verified  jackson2019robot             10.1186/s12859-019-3002-3
+ verified  kazakov2014elk               10.1007/s10817-013-9296-3
+ verified  glimm2014hermit              10.1007/s10817-014-9305-1
+ verified  david2011alignmentapi        10.3233/sw-2011-0028
+ verified  poveda2014oops               10.4018/ijswis.2014040102
+  dropped  meilicke2007repair           no DOI found by Crossref title search
+ verified  jimenez2011logmaprepair      10.1186/2041-1480-2-s1-s2
+semantic scholar batch: 90 ids
+{"snapshot": "2026-10-10", "verified": 90, "no_doi": 3, "dropped": 2}

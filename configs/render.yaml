@@ -1,0 +1,29 @@
+# Rendering into trainer-ready files (python -m oa_rlaif.data.render). Caps keep SDFT within the ~6 h budget;
+# all rows remain in data/episodes and data/facts, and test splits are never capped.
+seed: 21
+agent_trajectory_rate: 0.05   # share of decisions rendered as multi-turn mini-SWE-agent trajectories
+
+sdft_caps:                     # max training rows per task (or task:family); tuned after the dry run
+  default: 20000
+  decision:multifarm: 30000
+  decision:bioml: 30000
+  decision:icd: 30000
+  decision:anatomy: 5000
+  decision:dh: 5000
+  decision:dh_multiling: 10000
+  decision:biodiv: 5000
+  decision_agent: 6000
+  fact_parents: 20000
+  fact_synonyms: 20000
+  fact_definition: 15000
+  fact_code: 8000
+  fact_reverse_code: 8000
+  complex_edoal: 10000
+  logical_definition: 10000
+  knowledge_qa: 20000
+
+grpo_train_cap: 12000          # GRPO prompts (x 8 generations); sized for ~6 h on 3 trainer GPUs
+grpo_kind_share:               # share of the GRPO prompt budget per episode kind
+  gold: 0.70
+  silver: 0.20
+  unlabeled: 0.10

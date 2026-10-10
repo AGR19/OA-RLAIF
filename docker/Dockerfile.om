@@ -1,0 +1,8 @@
+# Sandbox image for mini-SWE-agent: a small shell with the `om` tool. Each task mounts its episode at /task.
+FROM python:3.11-slim
+RUN useradd -m agent
+COPY src/oa_rlaif/harness/om_cli.py /opt/om/om_cli.py
+RUN printf '#!/bin/sh\nexec python3 /opt/om/om_cli.py "$@"\n' > /usr/local/bin/om && chmod +x /usr/local/bin/om
+USER agent
+WORKDIR /task
+CMD ["sleep", "infinity"]

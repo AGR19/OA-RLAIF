@@ -1,0 +1,67 @@
+# Documented, reviewed deviations accepted by data/verify.py. Each entry needs a reason; nothing is accepted silently.
+# ontologies: {<path relative to raw folder>: "<reason>"}   (class-count mismatch or OWL API load failure)
+# references: {<path relative to raw folder>: "<reason>"}   (status "fail")
+# empty_files: {<path relative to raw folder>: "<reason>"}  (data-bearing files that contain only a header in the source)
+# Reference files are never edited. Cells that cannot be used are excluded and counted, and the counts are reported.
+ontologies:
+  "external/cyber/uco.owl": >-
+    OWL punning in the source: hasConfidenceValue, hasMACAddress and hasSource are declared both as
+    ObjectProperty and DatatypeProperty. The OWL API counts them in both sets (58 + 45 = 103); our parser keeps one
+    entity per IRI (100). Classes agree exactly (106 = 106); ELK: consistent.
+  "ICD-10 to SNOWMEDCT/snomed-ct-us-20260901.owl": >-
+    OWL 2 punning. snomed:762705008 (Concept model object attribute) and snomed:762706009 (Concept model data
+    attribute) are declared both as Class and as ObjectProperty/DataProperty. The OWL API counts them as classes
+    (390,669). Our parser keeps one entity per IRI and types them as properties (390,667 classes). Property
+    counts agree (143 = 143); label assertions differ by the same 2 entities. ELK: consistent, 0 unsatisfiable.
+references:
+  "biodiv/flopo-pto.rdf": >-
+    Reference defects, reported and not edited. 1 cell has a target without a namespace ("PATO_0000103"); 14
+    cells name source classes that are absent from the supplied FLOPO file (6.1%); 1 duplicate cell. These cells
+    do not resolve to declared classes and the episode builder excludes them from the reference alignment.
+  "complex-OM-benchmark-main/hydrography/cree-swo/reference.rdf": >-
+    7 cells use the relation "//" (XML &#47;&#47;). The benchmark README does not define it and it is not an
+    Alignment API relation. These cells are excluded from training and evaluation (complex.EXCLUDED_RELATIONS);
+    all other cells are used.
+  "complex-OM-benchmark-main/hydrography/hydrOntology_native-swo/reference.rdf": >-
+    Cells with the undefined relation "//" are excluded, as for cree-swo; 3 cells name source classes that are
+    absent from the supplied ontology. All other cells are used.
+  "complex-OM-benchmark-main/hydrography/hydrOntology_translated-swo/reference.rdf": >-
+    Cells with the undefined relation "//" are excluded, as for cree-swo; 3 cells name source classes that are
+    absent from the supplied ontology. All other cells are used.
+  "dataset-2015-testing/ref/ar-fr/cmt-confOf-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/cmt-conference-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/cmt-iasted-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/cmt-sigkdd-ar-fr.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/cmt-sigkdd-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/confOf-iasted-ar-fr.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/confOf-iasted-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/confOf-sigkdd-ar-fr.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/confOf-sigkdd-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/conference-confOf-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/conference-iasted-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/conference-sigkdd-ar-fr.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/conference-sigkdd-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/iasted-sigkdd-ar-fr.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+  "dataset-2015-testing/ref/ar-fr/iasted-sigkdd-fr-ar.rdf": >-
+    MultiFarm 2015 reference defect: none of its cells resolves. Target IRIs name entities that do not exist in the target ontology (e.g. confOf_ar#op-6477014-2447390 is a cmt_ar identifier). The file yields no episodes and is not edited; its twin in the other direction is used where it resolves.
+empty_files:
+  "ICD-10 to SNOWMEDCT/SnomedCT_ManagedServiceUS_PRODUCTION_US1000124_20260301T120000Z/Full/Refset/Metadata/der2_sscsRefset_MemberAnnotationStringValueFull_US1000124_20260301.txt": >-
+    The SNOMED CT US 2026-03 release ships this Full refset with a header line only (1 line, 117 bytes).
+  "ICD-10 to SNOWMEDCT/SnomedCT_ManagedServiceUS_PRODUCTION_US1000124_20260301T120000Z/Full/Terminology/sct2_Identifier_Full_US1000124_20260301.txt": >-
+    The SNOMED CT US 2026-03 release ships the Identifier Full file with a header line only (1 line, 92 bytes).
+  "complex-OM-benchmark-main/2025_OAEI/GED-and-class-eval/cmatch/cmt-conference/class-eval.tsv": >-
+    The benchmark ships this class-evaluation table with a header line only (no rows for cmatch on cmt-conference).

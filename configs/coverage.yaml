@@ -1,0 +1,137 @@
+# Every file under OA_RAW_DIR must match exactly one rule (first match wins). `data/verify.py` fails on
+# any unmatched file, and on any data-bearing file that produced zero derived records.
+# Paths are POSIX globs relative to the raw folder; ** matches across directories.
+#
+# Roles and where their records go:
+#   ontology            -> ontology-fact SDFT prompts, candidate pools, DRAL graph (node2vec), retrieval index
+#   gold_reference      -> gold for SDFT alignment prompts, GRPO episodes and held-out evaluation
+#   complex_reference   -> EDOAL complex-alignment SDFT prompts + evaluation (never flattened to pairs)
+#   trivial_reference   -> lexical baseline and the Recall+ "trivial" set (never input for test entities)
+#   icd_bridge          -> ICD-11 <- ICD-10 <- SNOMED triangulation (silver links) and ICD-10<->11 gold
+#   icd_crosscheck      -> parsed and compared with the matching .txt table (must be identical)
+#   snomed_facts        -> SNOMED concept/description/definition/hierarchy facts for SDFT
+#   snomed_mapping      -> extra mapping facts (SNOMED -> CTV3, SNOMED -> ICD-O) for SDFT
+#   snomed_history      -> inactive-concept replacement and history checks (no deprecated IRIs in gold)
+#   snomed_metadata     -> release metadata used to interpret the RF2 files (module, MRCM, descriptors)
+#   system_output       -> HARD NEGATIVES (system false positives) for SDFT/GRPO; never gold
+#   baseline_metrics    -> baseline rows in the evaluation tables
+#   eval_tooling        -> official scorers used by eval (Bio-ML scoring kit)
+#   candidate_pool      -> Bio-ML local ranking candidate lists: must parse; used as candidate pools and ranking eval
+#   knowledge_passage   -> SDFT knowledge prompts (A4B questions, passage = privileged context)
+#   provenance          -> licences, codeowners, web assets, screenshots: recorded in DATA_CARD.md
+data_bearing: [ontology, candidate_pool, gold_reference, complex_reference, trivial_reference, icd_bridge, icd_crosscheck,
+               snomed_facts, snomed_mapping, snomed_history, system_output, baseline_metrics,
+               knowledge_passage]
+
+rules:
+  # ---------------- papers and the datasource ----------------
+  - {glob: "Ontology Matching Textbook.pdf", role: knowledge_passage, family: datasource}
+  - {glob: "Deeper_and_Deeper_*.pdf", role: knowledge_passage, family: dral_oa_paper}
+
+  # ---------------- Anatomy ----------------
+  - {glob: "anatomy-dataset-2/*.owl", role: ontology, family: anatomy}
+  - {glob: "anatomy-dataset-2/reference.rdf", role: gold_reference, family: anatomy}
+  - {glob: "anatomy-dataset-2/trivial.rdf", role: trivial_reference, family: anatomy}
+
+  # ---------------- DH benchmark (monolingual + multilingual) ----------------
+  - {glob: "DH-benchmark-main/results/**/systemAlignment.rdf", role: system_output, family: dh}
+  - {glob: "DH-benchmark-main/results/**/*.csv", role: baseline_metrics, family: dh}
+  - {glob: "DH-benchmark-main/results/**/*.md", role: baseline_metrics, family: dh}
+  - {glob: "DH-benchmark-main/*/source.rdf", role: ontology, family: dh}
+  - {glob: "DH-benchmark-main/*/target.rdf", role: ontology, family: dh}
+  - {glob: "DH-benchmark-main/*/reference.rdf", role: gold_reference, family: dh}
+  - {glob: "DH-benchmark-main/README.md", role: knowledge_passage, family: dh}
+  - {glob: "DH-benchmark-multiling-main/results/**/systemAlignment.rdf", role: system_output, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/results/**/*.csv", role: baseline_metrics, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/results/**/*.md", role: baseline_metrics, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/*/source.rdf", role: ontology, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/*/target.rdf", role: ontology, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/*/reference.rdf", role: gold_reference, family: dh_multiling}
+  - {glob: "DH-benchmark-multiling-main/README.md", role: knowledge_passage, family: dh_multiling}
+  - {glob: "DH-benchmark-*/index.html", role: knowledge_passage, family: dh}
+  - {glob: "DH-benchmark-*/**", role: provenance, family: dh}
+
+  # ---------------- MultiFarm (OAEI 2015 testing) ----------------
+  - {glob: "dataset-2015-testing/ont/**/*.owl", role: ontology, family: multifarm}
+  - {glob: "dataset-2015-testing/ref/**/*.rdf", role: gold_reference, family: multifarm}
+
+  # ---------------- Biodiversity ----------------
+  - {glob: "biodiv/*.owl", role: ontology, family: biodiv}
+  - {glob: "biodiv/*.rdf", role: gold_reference, family: biodiv}
+
+  # ---------------- Complex-OM ----------------
+  - {glob: "complex-OM-benchmark-main/2025_OAEI/**", role: baseline_metrics, family: complex_om}  # per-mapping GED/class-eval scores
+  - {glob: "complex-OM-benchmark-main/biomedical/*_reference.owl", role: complex_reference, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/**/reference.rdf", role: complex_reference, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/**/reference.edoal", role: complex_reference, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/**/source.*", role: ontology, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/**/target.*", role: ontology, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/README.md", role: knowledge_passage, family: complex_om}
+  - {glob: "complex-OM-benchmark-main/**", role: provenance, family: complex_om}
+
+  # ---------------- ICD-10 / ICD-11 / SNOMED CT ----------------
+  - {glob: "ICD-10 to SNOWMEDCT/icd11.owl", role: ontology, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/ICD10CM.ttl", role: ontology, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/snomed-ct-us-*.owl", role: ontology, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/ICD 10 to 11 Mapings/mapping/readme.txt", role: knowledge_passage, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/ICD 10 to 11 Mapings/mapping/*.txt", role: icd_bridge, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/ICD 10 to 11 Mapings/mapping/*.xlsx", role: icd_crosscheck, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Map/der2_iisssccRefset_ExtendedMap*", role: icd_bridge, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Map/der2_sRefset_SimpleMap*", role: snomed_mapping, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_Concept_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_Description_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_TextDefinition_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_Relationship_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_StatedRelationship_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_RelationshipConcreteValues_*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Terminology/sct2_sRefset_OWLExpression*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Language/*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Content/der2_cRefset_Association*", role: snomed_history, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Content/der2_cRefset_AttributeValue*", role: snomed_history, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/Refset/Content/der2_Refset_Simple*", role: snomed_facts, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Full/**", role: snomed_history, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Snapshot/**", role: snomed_metadata, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/Readme_*.txt", role: knowledge_passage, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/Screenshot*.png", role: knowledge_passage, family: icd}  # transcribed in configs/knowledge/
+  - {glob: "ICD-10 to SNOWMEDCT/Snomed*/*", role: provenance, family: icd}
+  - {glob: "ICD-10 to SNOWMEDCT/**", role: provenance, family: icd}
+
+  # ---------------- OAEI Bio-ML organiser repository ----------------
+  # (Bio-ML task data itself — refs, candidate lists, NCIT/DOID/FMA — is in OA_BIOML_DIR, see bioml_rules.)
+  - {glob: "OAEI-Bio-ML-main/scoring_kit/docs/*.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/scoring_kit/**", role: eval_tooling, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/leaderboard.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/site/public/results/**/leaderboard.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/docs/20*/index.html", role: provenance, family: bioml}        # landing pages, no result tables
+  - {glob: "OAEI-Bio-ML-main/docs/20*/**/*.fld/*", role: provenance, family: bioml}        # spreadsheet-export assets
+  - {glob: "OAEI-Bio-ML-main/docs/20*/**/*.htm*", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/biollm_scripts/biollm_result.tsv", role: system_output, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/melt_scripts/test_map_to_skip_melt_eval.rdf", role: system_output, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/*.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/tasks/**/*.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/baseline_*.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/docs/2022/examples/*.tsv", role: eval_tooling, family: bioml}  # submission-format fixtures
+  - {glob: "OAEI-Bio-ML-main/**/README.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/**/readme.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/ontologies/ontologies.md", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/docs/index.html", role: knowledge_passage, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/site/src/data/results/*.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/**/reference_coherence.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/site/public/baseline_*.json", role: baseline_metrics, family: bioml}
+  - {glob: "OAEI-Bio-ML-main/site/src/pages/**/*.astro", role: provenance, family: bioml}  # page wrappers (title/blurb attributes only); the docs text is in scoring_kit/docs/*.md
+  - {glob: "OAEI-Bio-ML-main/**", role: provenance, family: bioml}
+
+# Bio-ML 2026 task data fetched by scripts/fetch_bioml.py into OA_BIOML_DIR (also fully covered).
+bioml_rules:
+  - {glob: "*/refs_equiv/*.tsv", role: gold_reference, family: bioml}
+  - {glob: "*/local.*.cands.tsv", role: candidate_pool, family: bioml}   # ranking candidate lists (eval + candidate pools), not references
+  - {glob: "ontologies/*.owl", role: ontology, family: bioml}
+  - {glob: "README.md", role: knowledge_passage, family: bioml}
+  - {glob: "ontologies.md", role: knowledge_passage, family: bioml}
+  - {glob: "**", role: provenance, family: bioml}
+
+# Extra datasource papers in OA_PAPERS_DIR (the user's "Matching Surveys" folder, 18 surveys 1986-2023).
+# They are SDFT knowledge passages and are cited in docs/LITERATURE_REVIEW.md section F (DOI-verified).
+papers_rules:
+  - {glob: "*.pdf", role: knowledge_passage, family: matching_surveys}
+

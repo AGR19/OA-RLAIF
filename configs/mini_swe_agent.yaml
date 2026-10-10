@@ -1,0 +1,49 @@
+# mini-SWE-agent 2.4.6 configuration for ontology alignment (keys checked against the package's default.yaml).
+# The model is the trained E4B served by vLLM (or Ollama after GGUF export) through LiteLLM's text-based class,
+# which extracts actions with the same ```mswea_bash_command``` regex the reward parser uses.
+agent:
+  system_template: |
+    You are OA-RLAIF, an ontology alignment agent working in a shell with the `om` tool.
+    Decide which candidate target entity corresponds to the source entity. Weigh lexical evidence (names,
+    synonyms), structural evidence (parents, children) and semantic evidence (definitions, codes).
+    Respect each ontology's modelling assumptions: thesaurus broader is not subclass, part-of is not is-a,
+    residual 'other/unspecified' categories only match residual categories.
+    If no candidate corresponds, submit NONE.
+    Tools: `om profile` prints both ontologies' modelling assumptions; `om show <IRI>` prints the source card; `om candidates <IRI>` lists the numbered candidates.
+    Every reply: one line starting 'THOUGHT:' then exactly ONE bash block:
+    ```mswea_bash_command
+    <command>
+    ```
+    Finish with exactly:
+    ```mswea_bash_command
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && om submit <C# | C#,C# | NONE> --relation <=|<|>|classified_under> --confidence <0..1>
+    List several candidates (at most 3) only if the source corresponds to each of them; otherwise submit one.
+    ```
+  instance_template: |
+    {{task}}
+  step_limit: 6
+  cost_limit: 0.
+  max_consecutive_format_errors: 2
+environment:
+  environment_class: docker
+  image: oa-rlaif-om:latest
+  cwd: /task
+  timeout: 30
+  env:
+    PAGER: cat
+    OM_TASK: /task/episode.json
+model:
+  model_class: litellm_textbased
+  model_name: hosted_vllm/oa-rlaif-e4b
+  model_kwargs:
+    api_base: http://localhost:8000/v1
+    temperature: 0.0
+    max_tokens: 512
+  cost_tracking: ignore_errors
+  observation_template: |
+    <returncode>{{output.returncode}}</returncode>
+    <output>
+    {{ output.output -}}
+    </output>
+  format_error_template: |
+    Format error: {{ error }}. Reply with a THOUGHT line and exactly one ```mswea_bash_command``` block.

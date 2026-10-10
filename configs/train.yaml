@@ -1,0 +1,70 @@
+# Training configuration for the Lambda 4xB200 box. Step counts are finalised after the 30-minute dry run
+# (scripts/35_dry_run.sh writes measured throughput to outputs/dry_run.json; 40/60 scripts read it).
+model:
+  id: google/gemma-4-E4B-it            # Gemma4ForConditionalGeneration (text + vision + audio towers)
+  dtype: bfloat16
+  attn_implementation: sdpa
+  chat_template_kwargs: {enable_thinking: false}   # non-thinking template for the small model
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.0
+  # language model only: attention + MLP projections (vision/audio towers stay frozen)
+  target_regex: '.*(?:language_model\.|^model\.)layers\.\d+\.(?:self_attn\.(?:q|k|v|o)_proj|mlp\.(?:gate|up|down)_proj)$'
+
+vllm:
+  server_host: 127.0.0.1
+  server_port: 8000
+  gpu: 3                                # GPU 3 serves rollouts; GPUs 0-2 train
+  gpu_memory_utilization: 0.85
+  max_model_len: 8192
+
+sdft:
+  output_dir: outputs/checkpoints/sdft
+  epochs: 2
+  learning_rate: 1.0e-4
+  warmup_ratio: 0.03
+  lr_scheduler: cosine
+  per_device_batch: 8
+  grad_accum: 4
+  max_prompt_length: 4096              # Anatomy k=40 prompts reach ~2,930 tokens (chars/4); keep headroom
+  max_completion_length: 384
+  num_generations: 1                    # one on-policy sample per prompt (SDFT/OPSD)
+  temperature: 1.0
+  teacher_model_kind: base              # frozen initial weights (SDFT paper); ablation: ema
+  distillation_mode: topk_logits
+  distillation_topk: 100
+  distillation_alpha: 0.5
+  teacher_prompt_template: "{prompt}\n\n[Teacher-only reference, not visible to the student]\n{privileged_context}"
+  save_steps: 500
+  logging_steps: 10
+  max_steps: -1                         # set from dry run if the 2-epoch budget does not fit
+
+grpo:
+  output_dir: outputs/checkpoints/grpo
+  init_from: outputs/checkpoints/sdft/final
+  learning_rate: 5.0e-6
+  per_device_batch: 8
+  grad_accum: 2
+  num_generations: 8
+  temperature: 1.0
+  top_p: 1.0
+  max_prompt_length: 4096              # Anatomy k=40 prompts reach ~2,930 tokens (chars/4); keep headroom
+  max_completion_length: 256
+  loss_type: dr_grpo
+  beta: 0.0
+  mask_truncated_completions: true
+  scale_rewards: false                  # Dr. GRPO: no std normalisation
+  save_steps: 200
+  logging_steps: 5
+  max_steps: -1
+  sample_dump_every: 50                 # write completions for manual reading (reward-hacking checks)
+  dral_temperature: 0.1
+  judge_fraction: 1.0                   # share of prompts judged (whole groups); size it to the API quota, see LAMBDA_RUNBOOK
+
+eval:
+  max_new_tokens: 256
+  temperature: 0.0
+  heldout_cap_per_family: 2000          # decisions per family evaluated with vLLM batch inference
+  agent_eval_n: 200                     # mini-SWE-agent episodes (plan steps 8/11/15)

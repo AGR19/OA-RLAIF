@@ -1,0 +1,786 @@
+[
+ {
+  "id": "christiano2017",
+  "cat": "rl",
+  "title": "Deep reinforcement learning from human preferences",
+  "arxiv": "1706.03741",
+  "venue": "NeurIPS 2017"
+ },
+ {
+  "id": "ziegler2019",
+  "cat": "rl",
+  "title": "Fine-Tuning Language Models from Human Preferences",
+  "arxiv": "1909.08593",
+  "venue": "arXiv"
+ },
+ {
+  "id": "stiennon2020",
+  "cat": "rl",
+  "title": "Learning to summarize from human feedback",
+  "arxiv": "2009.01325",
+  "venue": "NeurIPS 2020"
+ },
+ {
+  "id": "ouyang2022",
+  "cat": "rl",
+  "title": "Training language models to follow instructions with human feedback",
+  "arxiv": "2203.02155",
+  "venue": "NeurIPS 2022"
+ },
+ {
+  "id": "bai2022hh",
+  "cat": "rl",
+  "title": "Training a Helpful and Harmless Assistant with Reinforcement Learning from Human Feedback",
+  "arxiv": "2204.05862",
+  "venue": "arXiv"
+ },
+ {
+  "id": "bai2022cai",
+  "cat": "rl",
+  "title": "Constitutional AI: Harmlessness from AI Feedback",
+  "arxiv": "2212.08073",
+  "venue": "arXiv"
+ },
+ {
+  "id": "lee2024rlaif",
+  "cat": "rl",
+  "title": "RLAIF vs. RLHF: Scaling Reinforcement Learning from Human Feedback with AI Feedback",
+  "arxiv": "2309.00267",
+  "venue": "ICML 2024"
+ },
+ {
+  "id": "rafailov2023",
+  "cat": "rl",
+  "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+  "arxiv": "2305.18290",
+  "venue": "NeurIPS 2023"
+ },
+ {
+  "id": "schulman2017",
+  "cat": "rl",
+  "title": "Proximal Policy Optimization Algorithms",
+  "arxiv": "1707.06347",
+  "venue": "arXiv"
+ },
+ {
+  "id": "shao2024",
+  "cat": "rl",
+  "title": "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models",
+  "arxiv": "2402.03300",
+  "venue": "arXiv"
+ },
+ {
+  "id": "deepseek2025r1",
+  "cat": "rl",
+  "title": "DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning",
+  "doi": "10.1038/s41586-025-09422-z",
+  "venue": "Nature 2025"
+ },
+ {
+  "id": "yu2025dapo",
+  "cat": "rl",
+  "title": "DAPO: An Open-Source LLM Reinforcement Learning System at Scale",
+  "arxiv": "2503.14476",
+  "venue": "NeurIPS 2025"
+ },
+ {
+  "id": "liu2025drgrpo",
+  "cat": "rl",
+  "title": "Understanding R1-Zero-Like Training: A Critical Perspective",
+  "arxiv": "2503.20783",
+  "venue": "COLM 2025"
+ },
+ {
+  "id": "zheng2023judge",
+  "cat": "rl",
+  "title": "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena",
+  "arxiv": "2306.05685",
+  "venue": "NeurIPS 2023 (D&B)"
+ },
+ {
+  "id": "yuan2024selfreward",
+  "cat": "rl",
+  "title": "Self-Rewarding Language Models",
+  "arxiv": "2401.10020",
+  "venue": "ICML 2024"
+ },
+ {
+  "id": "gao2023overopt",
+  "cat": "rl",
+  "title": "Scaling Laws for Reward Model Overoptimization",
+  "arxiv": "2210.10760",
+  "venue": "ICML 2023"
+ },
+ {
+  "id": "skalse2022hacking",
+  "cat": "rl",
+  "title": "Defining and Characterizing Reward Hacking",
+  "arxiv": "2209.13085",
+  "venue": "NeurIPS 2022"
+ },
+ {
+  "id": "casper2023open",
+  "cat": "rl",
+  "title": "Open Problems and Fundamental Limitations of Reinforcement Learning from Human Feedback",
+  "arxiv": "2307.15217",
+  "venue": "TMLR 2023"
+ },
+ {
+  "id": "lightman2024verify",
+  "cat": "rl",
+  "title": "Let's Verify Step by Step",
+  "arxiv": "2305.20050",
+  "venue": "ICLR 2024"
+ },
+ {
+  "id": "lambert2024tulu3",
+  "cat": "rl",
+  "title": "Tulu 3: Pushing Frontiers in Open Language Model Post-Training",
+  "arxiv": "2411.15124",
+  "venue": "arXiv"
+ },
+ {
+  "id": "williams1992",
+  "cat": "rl",
+  "title": "Simple statistical gradient-following algorithms for connectionist reinforcement learning",
+  "doi": "10.1007/BF00992696",
+  "venue": "Machine Learning 1992"
+ },
+ {
+  "id": "hu2022lora",
+  "cat": "rl",
+  "title": "LoRA: Low-Rank Adaptation of Large Language Models",
+  "arxiv": "2106.09685",
+  "venue": "ICLR 2022"
+ },
+ {
+  "id": "dettmers2023qlora",
+  "cat": "rl",
+  "title": "QLoRA: Efficient Finetuning of Quantized LLMs",
+  "arxiv": "2305.14314",
+  "venue": "NeurIPS 2023"
+ },
+ {
+  "id": "yang2024sweagent",
+  "cat": "rl",
+  "title": "SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering",
+  "arxiv": "2405.15793",
+  "venue": "NeurIPS 2024"
+ },
+ {
+  "id": "kwon2023vllm",
+  "cat": "rl",
+  "title": "Efficient Memory Management for Large Language Model Serving with PagedAttention",
+  "doi": "10.1145/3600006.3613165",
+  "venue": "SOSP 2023"
+ },
+ {
+  "id": "hinton2015kd",
+  "cat": "opd",
+  "title": "Distilling the Knowledge in a Neural Network",
+  "arxiv": "1503.02531",
+  "venue": "NeurIPS 2014 DL workshop"
+ },
+ {
+  "id": "kim2016seqkd",
+  "cat": "opd",
+  "title": "Sequence-Level Knowledge Distillation",
+  "doi": "10.18653/v1/D16-1139",
+  "venue": "EMNLP 2016"
+ },
+ {
+  "id": "ross2011dagger",
+  "cat": "opd",
+  "title": "A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning",
+  "arxiv": "1011.0686",
+  "venue": "AISTATS 2011"
+ },
+ {
+  "id": "agarwal2024gkd",
+  "cat": "opd",
+  "title": "On-Policy Distillation of Language Models: Learning from Self-Generated Mistakes",
+  "arxiv": "2306.13649",
+  "venue": "ICLR 2024"
+ },
+ {
+  "id": "gu2024minillm",
+  "cat": "opd",
+  "title": "MiniLLM: Knowledge Distillation of Large Language Models",
+  "arxiv": "2306.08543",
+  "venue": "ICLR 2024"
+ },
+ {
+  "id": "ko2024distillm",
+  "cat": "opd",
+  "title": "DistiLLM: Towards Streamlined Distillation for Large Language Models",
+  "arxiv": "2402.03898",
+  "venue": "ICML 2024"
+ },
+ {
+  "id": "snell2022context",
+  "cat": "opd",
+  "title": "Learning by Distilling Context",
+  "arxiv": "2209.15189",
+  "venue": "arXiv"
+ },
+ {
+  "id": "gemma2024gemma2",
+  "cat": "opd",
+  "title": "Gemma 2: Improving Open Language Models at a Practical Size",
+  "arxiv": "2408.00118",
+  "venue": "arXiv (tech report)"
+ },
+ {
+  "id": "yang2025qwen3",
+  "cat": "opd",
+  "title": "Qwen3 Technical Report",
+  "arxiv": "2505.09388",
+  "venue": "arXiv (tech report)"
+ },
+ {
+  "id": "zhao2026opsd",
+  "cat": "opd",
+  "title": "Self-Distilled Reasoner: On-Policy Self-Distillation for Large Language Models",
+  "arxiv": "2601.18734",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "shenfeld2026sdft",
+  "cat": "opd",
+  "title": "Self-Distillation Enables Continual Learning",
+  "arxiv": "2601.19897",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "sdpo2026",
+  "cat": "opd",
+  "title": "Reinforcement Learning via Self-Distillation",
+  "arxiv": "2601.20802",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "opcd2026",
+  "cat": "opd",
+  "title": "On-Policy Context Distillation for Language Models",
+  "arxiv": "2602.12275",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "mixsd2026",
+  "cat": "opd",
+  "title": "MixSD: Mixed Contextual Self-Distillation for Knowledge Injection",
+  "arxiv": "2605.16865",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "opdsurvey2026",
+  "cat": "opd",
+  "title": "A Survey of On-Policy Distillation for Large Language Models",
+  "arxiv": "2604.00626",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "opdbeforerl2026",
+  "cat": "opd",
+  "title": "OPD Before RL: Warm-Starting Rubric-Based RL with On-Policy Distillation",
+  "arxiv": "2610.02781",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "sddegrade2026",
+  "cat": "opd",
+  "title": "Why Does Self-Distillation (Sometimes) Degrade the Reasoning Capability of LLMs?",
+  "arxiv": "2603.24472",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "denser2026",
+  "cat": "opd",
+  "title": "Denser != Better: Limits of On-Policy Self-Distillation for Continual Post-Training",
+  "arxiv": "2607.01763",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "privsol2026",
+  "cat": "opd",
+  "title": "Privileged Solutions or Context-Induced Teacher Behavior? Dissecting On-Policy Self-Distillation",
+  "arxiv": "2608.09228",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "tmblog2025",
+  "cat": "opd",
+  "title": "On-Policy Distillation (Thinking Machines Lab: Connectionism)",
+  "url": "https://thinkingmachines.ai/blog/on-policy-distillation/",
+  "venue": "Blog 2025",
+  "no_doi": true
+ },
+ {
+  "id": "euzenat2007book",
+  "cat": "om",
+  "title": "Ontology Matching",
+  "doi": "10.1007/978-3-540-49612-0",
+  "venue": "Springer 2007 (book)"
+ },
+ {
+  "id": "euzenat2013book",
+  "cat": "om",
+  "title": "Ontology Matching",
+  "doi": "10.1007/978-3-642-38721-0",
+  "venue": "Springer 2013 (book, 2nd ed.)"
+ },
+ {
+  "id": "shvaiko2013tkde",
+  "cat": "survey",
+  "title": "Ontology Matching: State of the Art and Future Challenges",
+  "doi": "10.1109/TKDE.2011.253",
+  "venue": "IEEE TKDE 2013",
+  "pdf": "2013_Shvaiko_Euzenat_Ontology_Matching_State_of_the_Art_and_Future_Challenges.pdf"
+ },
+ {
+  "id": "doan2003glue",
+  "cat": "om",
+  "title": "Learning to match ontologies on the Semantic Web",
+  "doi": "10.1007/s00778-003-0104-2",
+  "venue": "VLDB Journal 2003"
+ },
+ {
+  "id": "jimenez2011logmap",
+  "cat": "om",
+  "title": "LogMap: Logic-Based and Scalable Ontology Matching",
+  "doi": "10.1007/978-3-642-25073-6_18",
+  "venue": "ISWC 2011"
+ },
+ {
+  "id": "faria2013aml",
+  "cat": "om",
+  "title": "The AgreementMakerLight Ontology Matching System",
+  "doi": "10.1007/978-3-642-41030-7_38",
+  "venue": "OTM/ODBASE 2013"
+ },
+ {
+  "id": "kolyvakis2018deepalign",
+  "cat": "om",
+  "title": "DeepAlignment: Unsupervised Ontology Matching with Refined Word Vectors",
+  "doi": "10.18653/v1/N18-1072",
+  "venue": "NAACL 2018"
+ },
+ {
+  "id": "he2022bertmap",
+  "cat": "om",
+  "title": "BERTMap: A BERT-Based Ontology Alignment System",
+  "doi": "10.1609/aaai.v36i5.20510",
+  "venue": "AAAI 2022"
+ },
+ {
+  "id": "he2022bioml",
+  "cat": "om",
+  "title": "Machine Learning-Friendly Biomedical Datasets for Equivalence and Subsumption Ontology Matching",
+  "doi": "10.1007/978-3-031-19433-7_33",
+  "venue": "ISWC 2022"
+ },
+ {
+  "id": "chen2021distant",
+  "cat": "om",
+  "title": "Augmenting Ontology Alignment by Semantic Embedding and Distant Supervision",
+  "doi": "10.1007/978-3-030-77385-4_23",
+  "venue": "ESWC 2021"
+ },
+ {
+  "id": "chen2021owl2vec",
+  "cat": "om",
+  "title": "OWL2Vec*: embedding of OWL ontologies",
+  "doi": "10.1007/s10994-021-05997-6",
+  "venue": "Machine Learning 2021"
+ },
+ {
+  "id": "liu2021sapbert",
+  "cat": "om",
+  "title": "Self-Alignment Pretraining for Biomedical Entity Representations",
+  "doi": "10.18653/v1/2021.naacl-main.334",
+  "venue": "NAACL 2021"
+ },
+ {
+  "id": "grover2016node2vec",
+  "cat": "om",
+  "title": "node2vec: Scalable Feature Learning for Networks",
+  "doi": "10.1145/2939672.2939754",
+  "venue": "KDD 2016"
+ },
+ {
+  "id": "chen2017mtranse",
+  "cat": "om",
+  "title": "Multilingual Knowledge Graph Embeddings for Cross-lingual Knowledge Alignment",
+  "doi": "10.24963/ijcai.2017/209",
+  "venue": "IJCAI 2017"
+ },
+ {
+  "id": "sun2018bootea",
+  "cat": "om",
+  "title": "Bootstrapping Entity Alignment with Knowledge Graph Embedding",
+  "doi": "10.24963/ijcai.2018/611",
+  "venue": "IJCAI 2018"
+ },
+ {
+  "id": "wang2018gcnalign",
+  "cat": "om",
+  "title": "Cross-lingual Knowledge Graph Alignment via Graph Convolutional Networks",
+  "doi": "10.18653/v1/D18-1032",
+  "venue": "EMNLP 2018"
+ },
+ {
+  "id": "zeng2021ceaff",
+  "cat": "om",
+  "title": "Reinforcement Learning-based Collective Entity Alignment with Adaptive Features",
+  "venue": "ACM TOIS 2021"
+ },
+ {
+  "id": "xue2023drlom",
+  "cat": "om",
+  "title": "Deep Reinforcement Learning Based Ontology Meta-Matching Technique",
+  "venue": "IEICE Trans. Inf. & Syst. 2023"
+ },
+ {
+  "id": "touati2023drl",
+  "cat": "om",
+  "title": "Deep reinforcement learning approach for ontology matching problem",
+  "venue": "Int. J. Data Science and Analytics 2023"
+ },
+ {
+  "id": "chakraborty2021ontoconnect",
+  "cat": "om",
+  "title": "OntoConnect: Domain-Agnostic Ontology Alignment using Graph Embedding with Negative Sampling",
+  "venue": "ICMLA 2021"
+ },
+ {
+  "id": "zaeifi2024dral",
+  "cat": "om",
+  "title": "Deeper and Deeper: A Lightweight Semi-Supervised Deep Reinforcement Adaptive Learning-Based Ontology Alignment",
+  "doi": "10.1109/AIxDKE63520.2024.00012",
+  "venue": "AIxDKE 2024"
+ },
+ {
+  "id": "ravishankar2025dral",
+  "cat": "om",
+  "title": "DRAL-OA: Results for OAEI 2025",
+  "url": "https://ceur-ws.org/Vol-4144/om2025-oaei-paper6.pdf",
+  "venue": "OM@ISWC 2025 (CEUR Vol-4144)",
+  "no_doi": true
+ },
+ {
+  "id": "hertling2023olala",
+  "cat": "om",
+  "title": "OLaLa: Ontology Matching with Large Language Models",
+  "doi": "10.1145/3587259.3627571",
+  "venue": "K-CAP 2023"
+ },
+ {
+  "id": "giglou2024llms4om",
+  "cat": "om",
+  "title": "LLMs4OM: Matching Ontologies with Large Language Models",
+  "arxiv": "2404.10317",
+  "venue": "ESWC 2024 (satellite)"
+ },
+ {
+  "id": "he2023llmoa",
+  "cat": "om",
+  "title": "Exploring Large Language Models for Ontology Alignment",
+  "arxiv": "2309.07172",
+  "venue": "ISWC 2023 (posters)"
+ },
+ {
+  "id": "qiang2025agentom",
+  "cat": "om",
+  "title": "Agent-OM: Leveraging LLM Agents for Ontology Matching",
+  "arxiv": "2312.00326",
+  "venue": "PVLDB 2025"
+ },
+ {
+  "id": "matentzoglu2022sssom",
+  "cat": "om",
+  "title": "A Simple Standard for Sharing Ontological Mappings (SSSOM)",
+  "doi": "10.1093/database/baac035",
+  "venue": "Database 2022"
+ },
+ {
+  "id": "portisch2022bk",
+  "cat": "survey",
+  "title": "Background knowledge in ontology matching: A survey",
+  "venue": "Semantic Web Journal 2022",
+  "doi": "10.3233/SW-223085",
+  "pdf": "2023_Portisch_Background_Knowledge_in_Ontology_Matching_Survey.pdf"
+ },
+ {
+  "id": "he2024deeponto",
+  "cat": "om",
+  "title": "DeepOnto: A Python Package for Ontology Engineering with Deep Learning",
+  "arxiv": "2307.03067",
+  "venue": "Semantic Web Journal 2024"
+ },
+ {
+  "id": "amir2023truveta",
+  "cat": "om",
+  "title": "Truveta Mapper: A Zero-shot Ontology Alignment Framework",
+  "arxiv": "2301.09767",
+  "venue": "arXiv"
+ },
+ {
+  "id": "iyer2021veealign",
+  "cat": "om",
+  "title": "VeeAlign: Multifaceted Context Representation using Dual Attention for Ontology Alignment",
+  "doi": "10.18653/v1/2021.emnlp-main.842",
+  "venue": "EMNLP 2021"
+ },
+ {
+  "id": "meilicke2007logic",
+  "cat": "om",
+  "title": "Applying Logical Constraints to Ontology Matching",
+  "venue": "KI 2007"
+ },
+ {
+  "id": "hertling2019melt",
+  "cat": "verify",
+  "title": "MELT - Matching EvaLuation Toolkit",
+  "venue": "SEMANTiCS 2019"
+ },
+ {
+  "id": "bodenreider2005mice",
+  "cat": "om",
+  "title": "Of mice and men: aligning mouse and human anatomies",
+  "venue": "AMIA Annual Symposium 2005"
+ },
+ {
+  "id": "sousa2025ftsynthetic",
+  "cat": "closest",
+  "title": "Improving LLM-based Ontology Matching with fine-tuning on synthetic data",
+  "arxiv": "2511.22612",
+  "venue": "arXiv 2025"
+ },
+ {
+  "id": "taboada2025mila",
+  "cat": "closest",
+  "title": "Ontology Matching with Large Language Models and Prioritized Depth-First Search",
+  "arxiv": "2501.11441",
+  "venue": "arXiv 2025"
+ },
+ {
+  "id": "qiang2025oaeillmt",
+  "cat": "closest",
+  "title": "OAEI-LLM-T: A TBox Benchmark Dataset for Understanding Large Language Model Hallucinations in Ontology Matching",
+  "arxiv": "2503.21813",
+  "venue": "arXiv 2025"
+ },
+ {
+  "id": "liu2025ontotune",
+  "cat": "closest",
+  "title": "OntoTune: Ontology-Driven Self-training for Aligning Large Language Models",
+  "arxiv": "2502.05478",
+  "venue": "WWW 2025"
+ },
+ {
+  "id": "selfdemo2026schema",
+  "cat": "closest",
+  "title": "Surprising Effectiveness of Self-Demonstrations in Enhancing Schema-Ontology Mapping with LLMs",
+  "arxiv": "2609.13776",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "clinicalqa2026ontoreward",
+  "cat": "closest",
+  "title": "Ontology Concept Overlap as a Training Signal: Knowledge-Grounded Reinforcement Learning for Clinical Question Answering",
+  "arxiv": "2610.06360",
+  "venue": "arXiv 2026"
+ },
+ {
+  "id": "hu2025matchretrieval",
+  "cat": "closest",
+  "title": "From Matching to Retrieval: A New Role for LLMs in Ontology Alignment",
+  "url": "https://ceur-ws.org/Vol-4144/",
+  "venue": "OM@ISWC 2025 (CEUR Vol-4144)",
+  "no_doi": true
+ },
+ {
+  "id": "beisswanger2012qc",
+  "cat": "verify",
+  "title": "Towards valid and reusable reference alignments--ten basic quality checks for ontology alignments and their application to three different reference data sets",
+  "doi": "10.1186/2041-1480-3-S1-S4",
+  "venue": "J. Biomedical Semantics 2012",
+  "title_match": "loose"
+ },
+ {
+  "id": "horridge2011owlapi",
+  "cat": "verify",
+  "title": "The OWL API: A Java API for OWL ontologies",
+  "venue": "Semantic Web Journal 2011"
+ },
+ {
+  "id": "jackson2019robot",
+  "cat": "verify",
+  "title": "ROBOT: A Tool for Automating Ontology Workflows",
+  "venue": "BMC Bioinformatics 2019"
+ },
+ {
+  "id": "kazakov2014elk",
+  "cat": "verify",
+  "title": "The Incredible ELK: From Polynomial Procedures to Efficient Reasoning with EL Ontologies",
+  "venue": "J. Automated Reasoning 2014"
+ },
+ {
+  "id": "glimm2014hermit",
+  "cat": "verify",
+  "title": "HermiT: An OWL 2 Reasoner",
+  "venue": "J. Automated Reasoning 2014"
+ },
+ {
+  "id": "david2011alignmentapi",
+  "cat": "verify",
+  "title": "The Alignment API 4.0",
+  "venue": "Semantic Web Journal 2011"
+ },
+ {
+  "id": "poveda2014oops",
+  "cat": "verify",
+  "title": "OOPS! (OntOlogy Pitfall Scanner!): An On-line Tool for Ontology Evaluation",
+  "venue": "IJSWIS 2014"
+ },
+ {
+  "id": "meilicke2007repair",
+  "cat": "verify",
+  "title": "Repairing Ontology Mappings",
+  "venue": "AAAI 2007"
+ },
+ {
+  "id": "jimenez2011logmaprepair",
+  "cat": "verify",
+  "title": "Logic-based assessment of the compatibility of UMLS ontology sources",
+  "venue": "J. Biomedical Semantics 2011"
+ },
+ {
+  "id": "batini1986",
+  "cat": "survey",
+  "title": "A comparative analysis of methodologies for database schema integration",
+  "doi": "10.1145/27633.27634",
+  "venue": "ACM Computing Surveys 1986",
+  "pdf": "1986_Batini_Comparative_Analysis_of_Schema_Integration_Methodologies.pdf"
+ },
+ {
+  "id": "spaccapietra1992",
+  "cat": "survey",
+  "title": "Model independent assertions for integration of heterogeneous schemas",
+  "venue": "VLDB Journal 1992",
+  "pdf": "1992_Spaccapietra_Model_Independent_Assertions_for_Schema_Integration.pdf"
+ },
+ {
+  "id": "kashyap1996",
+  "cat": "survey",
+  "title": "Semantic and schematic similarities between database objects: a context-based approach",
+  "venue": "VLDB Journal 1996",
+  "pdf": "1996_Kashyap_Sheth_Semantic_and_Schematic_Similarities.pdf"
+ },
+ {
+  "id": "rahm2001",
+  "cat": "survey",
+  "title": "A survey of approaches to automatic schema matching",
+  "doi": "10.1007/s007780100057",
+  "venue": "VLDB Journal 2001",
+  "pdf": "2001_Rahm_Bernstein_Survey_of_Approaches_to_Automatic_Schema_Matching.pdf"
+ },
+ {
+  "id": "kalfoglou2003",
+  "cat": "survey",
+  "title": "Ontology mapping: the state of the art",
+  "doi": "10.1017/S0269888903000651",
+  "venue": "Knowledge Engineering Review 2003",
+  "pdf": "2003_Kalfoglou_Schorlemmer_Ontology_Mapping_State_of_the_Art.pdf"
+ },
+ {
+  "id": "noy2004",
+  "cat": "survey",
+  "title": "Semantic integration: a survey of ontology-based approaches",
+  "doi": "10.1145/1041410.1041421",
+  "venue": "SIGMOD Record 2004",
+  "pdf": "2004_Noy_Semantic_Integration_Survey_Ontology-based.pdf"
+ },
+ {
+  "id": "doan2005",
+  "cat": "survey",
+  "title": "Semantic Integration Research in the Database Community: A Brief Survey",
+  "venue": "AI Magazine 2005",
+  "pdf": "2005_Doan_Halevy_Semantic_Integration_Research_in_DB_Community.pdf",
+  "no_doi": true,
+  "url": "https://ojs.aaai.org/aimagazine/index.php/aimagazine/article/view/1801",
+  "note": "publisher page lists DOI 10.1609/aimag.v26i1.1801, which does not resolve at doi.org (checked 2026-10-10); URL recorded"
+ },
+ {
+  "id": "halevy2005",
+  "cat": "survey",
+  "title": "Why your data won't mix",
+  "doi": "10.1145/1103822.1103836",
+  "venue": "ACM Queue 2005",
+  "pdf": "2005_Halevy_Why_Your_Data_Dont_Mix.pdf"
+ },
+ {
+  "id": "shvaiko2005jods",
+  "cat": "survey",
+  "title": "A survey of schema-based matching approaches",
+  "doi": "10.1007/11603412_5",
+  "venue": "Journal on Data Semantics IV (LNCS 3730) 2005",
+  "pdf": "2005_Shvaiko_Euzenat_Survey_of_Schema-based_Matching_Approaches.pdf"
+ },
+ {
+  "id": "choi2006",
+  "cat": "survey",
+  "title": "A survey on ontology mapping",
+  "doi": "10.1145/1168092.1168097",
+  "venue": "SIGMOD Record 2006",
+  "pdf": "2006_Choi_Survey_on_Ontology_Mapping.pdf"
+ },
+ {
+  "id": "shvaiko2008ten",
+  "cat": "survey",
+  "title": "Ten challenges for ontology matching",
+  "doi": "10.1007/978-3-540-88873-4_18",
+  "venue": "ODBASE / OTM 2008 (LNCS 5332)",
+  "pdf": "2008_Shvaiko_Euzenat_Ten_Challenges_for_Ontology_Matching.pdf"
+ },
+ {
+  "id": "granitzer2010",
+  "cat": "survey",
+  "title": "Ontology alignment—a survey with focus on visually supported semi-automatic techniques",
+  "doi": "10.3390/fi2030238",
+  "venue": "Future Internet 2010",
+  "pdf": "2010_Granitzer_Ontology_Alignment_Survey_Visual_Semi-Automatic.pdf"
+ },
+ {
+  "id": "euzenat2011oaei",
+  "cat": "survey",
+  "title": "Ontology Alignment Evaluation Initiative: six years of experience",
+  "doi": "10.1007/978-3-642-22630-4_6",
+  "venue": "Journal on Data Semantics XV (LNCS 6720) 2011",
+  "pdf": "2011_Euzenat_OAEI_Six_Years_of_Experience.pdf"
+ },
+ {
+  "id": "oterocerdeira2015",
+  "cat": "survey",
+  "title": "Ontology matching: A literature review",
+  "doi": "10.1016/j.eswa.2014.08.032",
+  "venue": "Expert Systems with Applications 2015",
+  "pdf": "2015_Otero-Cerdeira_Ontology_Matching_Literature_Review.pdf"
+ },
+ {
+  "id": "ochieng2018",
+  "cat": "survey",
+  "title": "Large-scale ontology matching: state-of-the-art analysis",
+  "doi": "10.1145/3211871",
+  "venue": "ACM Computing Surveys 2018",
+  "pdf": "2018_Ochieng_Large-Scale_Ontology_Matching.pdf"
+ },
+ {
+  "id": "thieblin2020",
+  "cat": "survey",
+  "title": "Survey on complex ontology matching",
+  "doi": "10.3233/SW-190366",
+  "venue": "Semantic Web Journal 2020",
+  "pdf": "2018_Thieblin_Survey_on_Complex_Ontology_Matching.pdf"
+ }
+]

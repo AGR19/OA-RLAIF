@@ -1,0 +1,35 @@
+# environments and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.cache/
+.env
+.env.*
+!.env.example
+
+# licensed or generated data never goes to git (Springer textbook, SNOMED/UMLS, raw ontologies)
+data/
+outputs/
+third_party/*
+!third_party/README.md
+!third_party/mini-swe-agent/
+*.sqlite
+*.npz
+*.npy
+*.safetensors
+*.gguf
+
+# LaTeX build products
+docs/figures/build/
+*.aux
+*.log
+
+# literature cache (re-creatable)
+tools/literature/verify_cache.json
+
+# build outputs
+tools/owl_verify/target/
+*.egg-info/
+.DS_Store
