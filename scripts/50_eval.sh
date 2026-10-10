@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # LAMBDA: evaluate a merged model:  scripts/50_eval.sh sdft   |   scripts/50_eval.sh grpo --full
+#   1. held-out + zero-shot decisions and closed-book knowledge (vLLM batch, 4 GPUs)
+#   2. with --full: the whole Anatomy alignment -> OAEI results row (P, R, F, Recall+, Coherent)
+#   3. the same model as a mini-SWE-agent in the Docker sandbox (200 Anatomy episodes), comparable to the
+#      base-model agent run in 30_baseline.sh
 . "$(dirname "$0")/_common.sh"
 TAG="$1"; shift || true
 budget_gate "eval_$TAG"
@@ -10,3 +14,10 @@ if [ "${1:-}" = "--full" ]; then
      --source "$RAW/anatomy-dataset-2/mouse.owl" --target "$RAW/anatomy-dataset-2/human.owl" \
      --reference "$RAW/anatomy-dataset-2/reference.rdf"
 fi
+CUDA_VISIBLE_DEVICES=3 nohup .venv/bin/vllm serve "outputs/merged/$TAG" --port 8000 --served-model-name oa-rlaif-e4b \
+  --max-model-len 8192 > "outputs/logs/vllm_agent_$TAG.log" 2>&1 &
+echo $! > outputs/vllm_server.pid; trap vllm_down EXIT
+for _ in $(seq 1 120); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 5; done
+curl -sf http://127.0.0.1:8000/health >/dev/null || { log "vLLM did not start for the agent run; see outputs/logs/vllm_agent_$TAG.log"; exit 1; }
+$PY -m oa_rlaif.eval.agent_eval --episodes data/eval/heldout_anatomy.jsonl --n 200 --tag "$TAG" --env docker \
+  2>&1 | tee "outputs/logs/agent_eval_$TAG.log"

@@ -14,9 +14,9 @@
 #   dry_run      20 SDFT + 10 GRPO steps; measures throughput (outputs/dry_run.json)
 #   baseline     base E4B on all held-out sets
 #   sdft         Stage 1 on-policy self-distillation, then merge -> outputs/merged/sdft
-#   eval_sdft    held-out evaluation of the SDFT model
+#   eval_sdft    held-out evaluation of the SDFT model + the same model as a mini-SWE-agent (Docker)
 #   grpo         Stage 2 GRPO (DRAL-OA reward + local A4B judge), then merge -> outputs/merged/grpo
-#   eval_grpo    held-out + zero-shot evaluation and the full Anatomy alignment (OAEI row)
+#   eval_grpo    held-out + zero-shot evaluation, full Anatomy alignment (OAEI row), mini-SWE-agent run
 #   export       merged GRPO model -> GGUF Q4_K_M + Ollama Modelfile
 #   push         private HF: LoRA adapters, the GGUF, the evaluation results
 #
