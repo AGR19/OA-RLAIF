@@ -70,3 +70,41 @@ def test_agent_loop_in_docker_sandbox(tmp_path):
     assert results[0]["exit"] == "Submitted" and results[0]["correct"]
     trajectory = json.dumps(json.loads((tmp_path / "h1" / "trajectory.json").read_text()))
     assert "BLOCKED_42" in trajectory and "OPEN_42" not in trajectory.replace("BLOCKED_42", "")
+
+
+def _user_sandbox_ready() -> bool:
+    import os
+    import pwd
+
+    try:
+        pwd.getpwnam("oa-agent")
+    except KeyError:
+        return False
+    return os.geteuid() == 0 and os.path.exists("/opt/om/bin/om")
+
+
+@pytest.mark.skipif(not _user_sandbox_ready(), reason="user sandbox not set up (scripts/sandbox_setup.sh, root only)")
+def test_agent_loop_in_user_sandbox(tmp_path):
+    """The no-Docker sandbox: commands run as oa-agent, the task folder holds no gold, the repo is closed to it."""
+    from minisweagent.models.test_models import DeterministicModel
+
+    from oa_rlaif.harness.sandbox import network_isolation
+
+    secret = ROOT / "outputs" / "sandbox_secret_probe.txt"
+    secret.parent.mkdir(parents=True, exist_ok=True)
+    secret.write_text("TOPSECRET_" + "42")
+    try:
+        model = DeterministicModel(outputs=[
+            turn("whoami"), turn(f"cat {secret} || echo DENIED_$((40+2))"), turn("cat episode.json"),
+            turn("om candidates http://s#1 --k 20"),
+            turn("echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && om submit C2 --relation = --confidence 0.9")])
+        cfg = read_yaml(ROOT / "configs" / "mini_swe_agent.yaml")
+        results = run([episode()], model, "user", tmp_path, cfg)
+    finally:
+        secret.unlink()
+    assert results[0]["exit"] == "Submitted" and results[0]["correct"]
+    trajectory = (tmp_path / "h1" / "trajectory.json").read_text()
+    assert "oa-agent" in trajectory and "DENIED_42" in trajectory and "TOPSECRET_42" not in trajectory
+    assert '\\"gold\\"' not in trajectory  # the episode the agent can read has no answer
+    if network_isolation():
+        assert "unshare" not in trajectory  # the wrapper is invisible to the agent

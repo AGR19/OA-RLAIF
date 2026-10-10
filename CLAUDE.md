@@ -28,7 +28,7 @@ Only the held-out and zero-shot numbers are headline numbers. Report everything 
 - **Everything runs locally except A4B question generation.** On the Mac, A4B through Google AI Studio writes the datasource questions. The model is `gemma-4-26b-a4b-it`, free tier, paced by `JUDGE_RPM`. This is the only remote model call.
   - The **GRPO judge is A4B served locally** on Lambda: `google/gemma-4-26B-A4B-it`, vLLM on GPU 3 next to the policy, thinking off. `judge_up` in `scripts/_common.sh` starts it.
   - Why (decided 2026-10-10): Gemma 4 is free-tier only on the Gemini API (paid tier "Not available"), so the quota cannot cover about 96K judge calls. API latency would also idle the 4×B200 during reward scoring.
-  - Local: the policy (served by local vLLM; `localhost` URLs are not APIs), the sandbox (Docker with `--network none`), training, embeddings (FastText `fast.bin` copied over, not downloaded), node2vec and mini-swe-agent (vendored in `third_party/`, installed from source).
+  - Local: the policy (served by local vLLM; `localhost` URLs are not APIs), the sandbox (Docker with `--network none`; on machines that cannot run Docker, the user sandbox in `harness/sandbox.py`), training, embeddings (FastText `fast.bin` copied over, not downloaded), node2vec and mini-swe-agent (vendored in `third_party/`, installed from source).
   - One-time setup downloads on the GPU box: Gemma 4 E4B and 26B-A4B (51.6 GB) weights from HF, the pinned wheels and the Docker base image. After setup, set `HF_HUB_OFFLINE=1` and `LITELLM_LOCAL_MODEL_COST_MAP=True`.
   - Publishing (GitHub, HF datasets) is a separate step that needs the user's OK.
 - **No RAG at inference.** Knowledge goes into the weights through OPSD. Privileged context is used only by the frozen teacher during training.
@@ -51,7 +51,7 @@ Only the held-out and zero-shot numbers are headline numbers. Report everything 
 
 On the Mac: `10_prepare_data.sh` → `15_datasource.sh` → `20_fit_dral.sh` → `80_verify_and_push.sh --hf` (pushes the datasets to private HF).
 
-On Lambda: `scripts/lambda_all.sh`; on CoreWeave: `scripts/coreweave_all.sh` (see `LAMBDA_RUNBOOK.md`, `COREWEAVE_RUNBOOK.md`). Both run the same resumable stage list in `scripts/run_all.sh`. CoreWeave adds the price prompt, the Docker install (`coreweave_docker.sh`), the /dev/shm and disk checks, and caches next to the repo. The GPU layout follows the GPU count and size (`scripts/_common.sh`). The budget guard counts the machine's wall-clock time, and the dry run scales the training slots to the money left (`train.common.slot_scale`). Stages:
+On Lambda: `scripts/lambda_all.sh`; on CoreWeave: `scripts/coreweave_all.sh`; on Vast.ai: `scripts/vast_all.sh` (see `LAMBDA_RUNBOOK.md`, `COREWEAVE_RUNBOOK.md`, `VAST_RUNBOOK.md`). All run the same resumable stage list in `scripts/run_all.sh`. CoreWeave and Vast.ai add the price prompt, the agent sandbox (`sandbox_setup.sh`: Docker, or on Vast.ai container instances a user sandbox), the /dev/shm and disk checks, and caches next to the repo. The GPU layout follows the GPU count and size (`scripts/_common.sh`). The budget guard counts the machine's wall-clock time, and the dry run scales the training slots to the money left (`train.common.slot_scale`). Stages:
 1. setup, then pull the private HF datasets;
 2. `00_check_env.sh`, then `72_gguf_check.sh`;
 3. `35_dry_run.sh` (times OPSD, SFT and GRPO with the judge, then plans the steps);
@@ -71,6 +71,10 @@ Every one of the 2,573 files in `Raw Ontology Folders` has a role in `configs/co
 ## Modelling assumptions
 
 Every decision prompt carries the source and target **modelling profiles** (`data/ontology_profiles.json`), built by `python -m oa_rlaif.data.ontology_profiles`. Never drop them from prompts: train, eval and harness must see the same format. Report the Coherent column (ELK) and the assumption-sensitive slices with every evaluation.
+
+## Agent sandbox
+
+The agent's task folder holds only the public episode (`harness.sandbox.public_episode`): never `gold`, `gold_all`, `none_reason`, `hard_negatives`, `kind`, `provenance` or `split`. The agent can `cat` every file in that folder. The harness keeps the gold in memory for scoring. `OA_AGENT_ENV` (written by `scripts/sandbox_setup.sh`) selects `docker` or `user`; each `summary.json` and Table 2 record the sandbox and the network setting.
 
 ## Alignment outputs
 

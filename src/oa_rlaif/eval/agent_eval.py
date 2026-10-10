@@ -3,8 +3,11 @@
     python -m oa_rlaif.eval.agent_eval --episodes data/eval/heldout_anatomy.jsonl --n 200 \
         --model hosted_vllm/oa-rlaif-e4b --api-base http://localhost:8000/v1 --env docker
 
-Each episode gets its own task directory with episode.json, mounted at /task (docker) or used directly (local).
-The submission (TSV from `om submit`) is scored against gold; trajectories are saved for inspection.
+Each episode gets its own task directory with the PUBLIC episode (no gold; harness.sandbox.public_episode), mounted
+at /task (docker), owned by the sandbox user (user: machines without Docker, e.g. Vast.ai containers) or used
+directly (local: tests). The submission (TSV from `om submit`) is scored against the gold kept in this process;
+trajectories are saved for inspection. --env defaults to OA_AGENT_ENV (written by scripts/sandbox_setup.sh), else
+docker.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import random
 import sys
 from pathlib import Path
 
+from ..harness.sandbox import SANDBOX_USER, describe, public_episode
 from ..io import read_jsonl, read_yaml
 from ..paths import ROOT, out_dir
 from ..progress import stage
@@ -29,6 +33,10 @@ def instance_text(episode: dict) -> str:
 
 def make_environment(kind: str, task_dir: Path, cfg: dict):
     env_cfg = cfg["environment"]
+    if kind == "user":
+        from ..harness.sandbox import make_user_sandbox
+
+        return make_user_sandbox(task_dir, timeout=env_cfg.get("timeout", 30))
     if kind == "docker":
         from minisweagent.environments.docker import DockerEnvironment
 
@@ -62,9 +70,21 @@ def run(episodes: list[dict], model, env_kind: str, workdir: Path, cfg: dict) ->
     results = []
     with stage("agent_eval", total=len(episodes)) as bar:
         for episode in episodes:
-            task_dir = workdir / episode["id"]
-            task_dir.mkdir(parents=True, exist_ok=True)
-            (task_dir / "episode.json").write_text(json.dumps(episode))
+            run_dir = workdir / episode["id"]  # trajectory and outputs (the repo side)
+            run_dir.mkdir(parents=True, exist_ok=True)
+            if env_kind == "user":
+                from ..harness.sandbox import prepare_task_dir
+
+                task_dir = prepare_task_dir(workdir.name, episode["id"])
+            else:
+                task_dir = run_dir
+            # the agent can read every file in its task folder: give it the public episode only, never the gold
+            (task_dir / "episode.json").write_text(json.dumps(public_episode(episode)))
+            if env_kind == "user":
+                import pwd
+
+                entry = pwd.getpwnam(SANDBOX_USER)
+                os.chown(task_dir / "episode.json", entry.pw_uid, entry.pw_gid)
             env = make_environment(env_kind, task_dir, cfg)
             agent = DefaultAgent(model, env, **agent_cfg)
             try:
@@ -78,7 +98,7 @@ def run(episodes: list[dict], model, env_kind: str, workdir: Path, cfg: dict) ->
             correct = target is not None and ((target == "NONE" and not gold) or (bool(gold) and targets == gold))
             results.append({"id": episode["id"], "pair_id": episode["pair_id"], "exit": outcome.get("exit_status"),
                             "target": target, "correct": bool(correct), "steps": len(agent.messages)})
-            (task_dir / "trajectory.json").write_text(json.dumps(agent.messages, default=str)[:2_000_000])
+            (run_dir / "trajectory.json").write_text(json.dumps(agent.messages, default=str)[:2_000_000])
             bar.advance()
     return results
 
@@ -89,7 +109,7 @@ def main() -> int:
     parser.add_argument("--n", type=int, default=200)
     parser.add_argument("--model", default="hosted_vllm/oa-rlaif-e4b")
     parser.add_argument("--api-base", default="http://localhost:8000/v1")
-    parser.add_argument("--env", choices=["docker", "local"], default="docker")
+    parser.add_argument("--env", choices=["docker", "user", "local"], default=os.environ.get("OA_AGENT_ENV") or "docker")
     parser.add_argument("--tag", default="agent")
     args = parser.parse_args()
     cfg = read_yaml(ROOT / "configs" / "mini_swe_agent.yaml")
@@ -105,7 +125,7 @@ def main() -> int:
     results = run(episodes[: args.n], model, args.env, workdir, cfg)
     accuracy = sum(r["correct"] for r in results) / max(1, len(results))
     summary = {"episodes": len(results), "accuracy": round(accuracy, 4),
-               "submitted": sum(r["exit"] == "Submitted" for r in results), "tag": args.tag}
+               "submitted": sum(r["exit"] == "Submitted" for r in results), "tag": args.tag, **describe(args.env)}
     (workdir / "results.jsonl").write_text("\n".join(json.dumps(r) for r in results) + "\n")
     (workdir / "summary.json").write_text(json.dumps(summary, indent=1))
     print(json.dumps(summary, indent=1))

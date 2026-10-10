@@ -6,7 +6,7 @@ The same pipeline as on Lambda (`LAMBDA_RUNBOOK.md`), started with one command: 
 |---|---|
 | You pay per machine hour, and prices vary by contract | Ask once for the hourly price of the machine. Show what the $450 stop buys before anything runs. The budget guard counts the machine's wall-clock time from the first start. |
 | A higher price than Lambda's $27.16/h | The dry run shrinks the OPSD, GRPO and SFT time slots evenly, so the run still ends with the GGUF, every evaluation and the SFT row inside the budget. If too little is left for training, the dry run stops and says why. |
-| Docker is often missing, and pods cannot always run it | `scripts/coreweave_docker.sh` installs Docker Engine and starts it. It detects the machine type (case table below). |
+| Docker is often missing, and pods cannot always run it | `scripts/sandbox_setup.sh` installs Docker Engine and starts it. It detects the machine type (case table below). |
 | 8 GPUs per node, sometimes H100/H200 instead of B200 | The GPU layout follows the GPU count and size (layout table below). |
 | Pods get a 64 MB `/dev/shm` | The setup stops with the pod-spec fix, because NCCL and vLLM crash with so little shared memory. |
 | Pods restart, and the root disk is temporary | The Hugging Face and uv caches are kept in `.cache/` next to the repo. Put the repo on the persistent volume, and the run resumes after a restart. |

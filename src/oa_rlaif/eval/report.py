@@ -62,6 +62,13 @@ def agent_table(root: Path) -> tuple[list[str], list[tuple[str, list]]]:
     return ["Correct (%)", "Submitted (%)", "Episodes"], rows
 
 
+def sandbox_note(root: Path) -> str:
+    """How the agents were isolated (Docker, or the user sandbox on machines without Docker), from summary.json."""
+    seen = {(s.get("sandbox", "docker"), s.get("network", "none")) for tag, _ in ROWS
+            if (s := _load(root / "agent_runs" / tag / "summary.json"))}
+    return "; ".join(f"sandbox {box}, network {net}" for box, net in sorted(seen))
+
+
 def oaei_table(root: Path) -> tuple[list[str], list[tuple[str, list]]]:
     header = ["Runtime (s)", "Size", "Precision", "F-Measure", "Recall", "Recall+"]
     rows = []
@@ -124,7 +131,7 @@ def build(root: Path | None = None) -> dict:
     parts = [render("Table 1. Held-out and zero-shot decisions (F1 ×100), ICD-10→11 accuracy ×100, SNOMED→ICD-11 "
                     "bridge recovery ×100 (held-out ICD-10 categories; retrieval misses count as failures) and "
                     "closed-book knowledge (token F1 ×100).", h1, r1, "{:.1f}"),
-             render("Table 2. The same models as mini-SWE-agents (Docker sandbox, Anatomy).", h2, r2,
+             render(f"Table 2. The same models as mini-SWE-agents (Anatomy; {sandbox_note(root) or 'sandbox not run'}).", h2, r2,
                     ["{:.1f}", "{:.1f}", "{:.0f}"], higher=[True, True, None]),
              render("Table 3. Whole Anatomy alignment in OAEI form.", h3, r3, ["{:.0f}", "{:.0f}"] + ["{:.3f}"] * 4,
                     higher=[False, None, True, True, True, True])]

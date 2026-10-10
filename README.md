@@ -18,6 +18,7 @@
 | `tools/owl_verify` | OWL API + ELK cross-parser (Java) |
 | `LAMBDA_RUNBOOK.md` | how to run on Lambda 4×B200 within $500 (`scripts/lambda_all.sh`) |
 | `COREWEAVE_RUNBOOK.md` | how to run on CoreWeave: Docker install, price, any GPU count (`scripts/coreweave_all.sh`) |
+| `VAST_RUNBOOK.md` | how to run on Vast.ai: user sandbox when Docker cannot run, price, any GPU count (`scripts/vast_all.sh`) |
 
 ## Pipeline
 1. **Mac (free).** The verify gate below runs the parse verifier and the leakage/coverage checks; `--hf` pushes the datasets only after your OK.
@@ -27,7 +28,7 @@
    scripts/20_fit_dral.sh            # DRAL mapping layers
    scripts/80_verify_and_push.sh     # verify gate (+ --hf)
    ```
-2. **Lambda or CoreWeave.** One command runs everything: `scripts/lambda_all.sh` or `scripts/coreweave_all.sh` (see the runbooks). The steps below are what it runs. Setup is the only step with downloads. Everything else runs locally. The A4B judge is served on the instance; the only remote model call is A4B question generation on the Mac.
+2. **Lambda, CoreWeave or Vast.ai.** One command runs everything: `scripts/lambda_all.sh`, `scripts/coreweave_all.sh` or `scripts/vast_all.sh` (see the runbooks). The steps below are what it runs. Setup is the only step with downloads. Everything else runs locally. The A4B judge is served on the instance; the only remote model call is A4B question generation on the Mac.
    ```bash
    scripts/lambda_setup.sh
    scripts/00_check_env.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time install on the GPU box. Downloads happen only here.
-# Lambda (4xB200, Ubuntu, Docker preinstalled) runs it directly; CoreWeave runs it from scripts/coreweave_setup.sh
+# Lambda (4xB200, Ubuntu, Docker preinstalled) runs it directly; CoreWeave and Vast.ai run it from scripts/cloud_setup.sh
 # after the price, system packages and Docker are in place (the price lines below then keep CoreWeave's value).
 set -euo pipefail
 cd "$(dirname "$0")/.."

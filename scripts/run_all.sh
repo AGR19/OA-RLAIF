@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # The one-command run, shared by scripts/lambda_all.sh and scripts/coreweave_all.sh:
 #
-#   scripts/run_all.sh lambda|coreweave
+#   scripts/run_all.sh lambda|coreweave|vast
 #
 # It asks for the Hugging Face token once (after installing), then runs every step without further input and shows a
 # live dashboard: total progress bar, the current step with its own bar, elapsed time, ETA and GPU spend so far.
 # Full output of each step: outputs/logs/stage_<step>.log
 #
-#   1 setup       packages, Gemma 4 E4B + 26B-A4B judge weights, Docker sandbox, llama.cpp
+#   1 setup       packages, Gemma 4 E4B + 26B-A4B judge weights, agent sandbox (Docker or user), llama.cpp
 #   2 data        private HF datasets -> data/
-#   3 check_env   GPUs, shared memory, libraries, data, Docker agent sandbox (stops here if anything is missing)
+#   3 check_env   GPUs, shared memory, libraries, data, agent sandbox (stops here if anything is missing)
 #   4 gguf_check  converts the BASE model to GGUF first, so export problems show before training
 #   5 dry_run     times OPSD, SFT and GRPO (with the judge), checks the judge, plans steps that fit the budget
 #   6 baseline    base E4B: held-out sets + mini-SWE-agent episodes
@@ -30,21 +30,23 @@
 # stops at $450 of $500, and the dry run shrinks the training slots if the price needs it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PLATFORM="${1:?usage: scripts/run_all.sh lambda|coreweave}"
+PLATFORM="${1:?usage: scripts/run_all.sh lambda|coreweave|vast}"
 case "$PLATFORM" in
   lambda)    SETUP=scripts/lambda_setup.sh;    WHERE="Lambda"
              RELEASE="TERMINATE THE INSTANCE in the Lambda console. Billing continues until you do." ;;
-  coreweave) SETUP=scripts/coreweave_setup.sh; WHERE="CoreWeave"
+  coreweave) SETUP="scripts/cloud_setup.sh coreweave"; WHERE="CoreWeave"
              RELEASE="RELEASE THE COREWEAVE NODE: delete the pod or instance, or scale its node pool to 0. Billing continues until you do." ;;
-  *) echo "unknown platform '$PLATFORM' (lambda or coreweave)"; exit 1 ;;
+  vast)      SETUP="scripts/cloud_setup.sh vast"; WHERE="Vast.ai"; export OA_SANDBOX_FALLBACK="${OA_SANDBOX_FALLBACK:-user}"
+             RELEASE="DESTROY THE VAST.AI INSTANCE in the console (a stopped instance still bills for its disk)." ;;
+  *) echo "unknown platform '$PLATFORM' (lambda, coreweave or vast)"; exit 1 ;;
 esac
 export OA_PLATFORM="$WHERE"
 mkdir -p outputs/stages outputs/logs
 export OA_RAW_DIR="${OA_RAW_DIR:-data/raw}"
 envval() { grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"' || true; }
 
-if [ "$PLATFORM" = coreweave ]; then
-  scripts/coreweave_price.sh          # asks once for the hourly price, shows what the budget buys
+if [ "$PLATFORM" != lambda ]; then
+  scripts/price.sh "$PLATFORM"        # asks once for the hourly price, shows what the budget buys
 fi
 [ -f outputs/stages/run.start ] || date +%s > outputs/stages/run.start
 DASH="python3 scripts/dashboard.py --clear"
@@ -70,12 +72,12 @@ stage() {
   fi
 }
 
-stage setup "$SETUP"
+stage setup $SETUP
 # the dashboard and the HF login read these from .env (written by the setup scripts)
 export OA_GPU_USD_PER_HOUR="${OA_GPU_USD_PER_HOUR:-$(envval OA_GPU_USD_PER_HOUR)}"
 HF_HOME_ENV="$(envval HF_HOME)"; [ -n "$HF_HOME_ENV" ] && export HF_HOME="$HF_HOME_ENV"
-# CoreWeave pods can restart and lose the Docker daemon: make sure it runs (idempotent, seconds when it does)
-[ "$PLATFORM" = coreweave ] && scripts/coreweave_docker.sh --start
+# Pods and containers can restart and lose the Docker daemon: make sure the sandbox works (seconds when it does)
+if [ "$PLATFORM" != lambda ]; then scripts/sandbox_setup.sh --start; fi
 
 # Hugging Face login, once (the token stays in your terminal and in the HF cache on this machine).
 if ! .venv/bin/hf auth whoami >/dev/null 2>&1; then

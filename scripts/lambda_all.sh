@@ -6,5 +6,5 @@
 #
 # Runs the 16 stages listed in scripts/run_all.sh with a live dashboard; asks once for the Hugging Face token.
 # Resumable: run it again after a failure. WHEN IT SAYS DONE, TERMINATE THE INSTANCE (billing continues).
-# CoreWeave: use scripts/coreweave_all.sh instead (installs Docker, asks for the price, any GPU count).
+# CoreWeave / Vast.ai: use scripts/coreweave_all.sh / scripts/vast_all.sh (price prompt, sandbox setup, any GPUs).
 exec "$(dirname "$0")/run_all.sh" lambda "$@"
