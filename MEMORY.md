@@ -244,3 +244,29 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 
   No zero-shot leakage.
 - **Questions:** 5,144 train / 1,230 test; 1,578 passages.
+
+## 2026-10-10 — pushed (user: "Lets push to github and hugging face")
+- **GitHub `AGR19/OA-RLAIF` (private), 5 commits:** code, configs, docs, scripts, vendored mini-swe-agent. No data or secrets.
+- **HF datasets (private, gonibeed):**
+
+  | Repo | Size |
+  |---|---:|
+  | oa-rlaif-datasource | 0.02 GB |
+  | oa-rlaif-sdft | 1.24 GB |
+  | oa-rlaif-grpo | 1.50 GB |
+  | oa-rlaif-dral-reward | 0.27 GB |
+  | oa-rlaif-icd-triangulation | 0.18 GB |
+
+  The grpo repo includes `raw/anatomy-dataset-2` for the full Anatomy alignment on Lambda.
+- **Round-trip test:** pulled into an empty folder; every checked file is byte-identical to the local build. The Lambda data checks pass; training code loads 328,944 SDFT rows and 12,000 GRPO prompts; the reward functions run.
+- **One command for Lambda:** `scripts/lambda_all.sh`, with resumable stages via `outputs/stages/*.done`.
+  - Rehearsed on the Mac with stub stages: it stops for the HF login, runs the stages in order, stops on a failure without marking it done, resumes at the failed stage, and skips everything when done.
+- **Fixes found while scripting:**
+  1. SDFT data (328,944 rows × 2 epochs = 6,853 steps) would not fit the budget. Steps are now planned from the dry run (`plan_steps`: min(full epochs, time slot)), and the dry run times GRPO with the judge.
+  2. The trained models were never evaluated as agents on Lambda; `50_eval.sh` now runs 200 Docker agent episodes per model.
+  3. GGUF conversion used the system `python`.
+  4. `00_check_env.sh` did not fail on missing items.
+  5. The model push lacked the GGUF.
+  6. Added an early base-model GGUF check.
+  7. The SFT comparison arm is opt-in (`RUN_SFT_ARM=1`, ~3 GPU h).
+- **The GGUF combines** base E4B + SDFT (merged) + GRPO trained on top: DRAL-OA reward + A4B judge, i.e. RLAIF.

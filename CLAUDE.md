@@ -51,7 +51,14 @@ Only the held-out and zero-shot numbers are headline numbers. Report everything 
 
 On the Mac: `10_prepare_data.sh` → `15_datasource.sh` → `20_fit_dral.sh` → `80_verify_and_push.sh --hf` (pushes the datasets to private HF).
 
-On Lambda: `00_check_env.sh` → `hf download` the datasets → `30_baseline.sh` → `40_sdft.sh` → `50_eval.sh` → `60_grpo.sh` → `50_eval.sh` → `70_export.sh` → `80_verify_and_push.sh --hf --models`.
+On Lambda: `scripts/lambda_all.sh` (one resumable command; see `LAMBDA_RUNBOOK.md`). Stages:
+1. setup, then pull the private HF datasets;
+2. `00_check_env.sh`, then `72_gguf_check.sh`;
+3. `35_dry_run.sh` (times SDFT and GRPO with the judge, then plans the steps);
+4. `30_baseline.sh`;
+5. `40_sdft.sh`, then `50_eval.sh sdft`;
+6. `60_grpo.sh`, then `50_eval.sh grpo --full`;
+7. `70_export.sh`, then the private model push.
 
 ## Data coverage (all raw data is used)
 
@@ -76,7 +83,10 @@ Every decision prompt carries the source and target **modelling profiles** (`dat
 
 Private repos only. `scripts/80_verify_and_push.sh --hf` creates and uploads them once the gates pass.
 - Datasets: `{ns}/oa-rlaif-datasource`, `-sdft`, `-grpo`, `-dral-reward`, `-icd-triangulation`.
-- Models (from Lambda): `{ns}/oa-rlaif-e4b-sdft`, `{ns}/oa-rlaif-e4b-grpo`.
+- Models (pushed by `lambda_all.sh` at the end):
+  - `{ns}/oa-rlaif-e4b-gguf`: Q4_K_M + Modelfile; base + SDFT + GRPO merged.
+  - `{ns}/oa-rlaif-e4b-sdft` and `-grpo`: LoRA adapters.
+  - Dataset `{ns}/oa-rlaif-results`.
 
 The user runs `hf auth login` and sets `HF_NAMESPACE`. Never handle the token, and get the user's OK in chat before each push.
 
