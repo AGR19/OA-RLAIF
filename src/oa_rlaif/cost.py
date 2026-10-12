@@ -40,6 +40,7 @@ from pathlib import Path
 # pass for one the user just gave.
 SHELL_PRICE = os.environ.get("OA_GPU_USD_PER_HOUR", "").strip()
 
+from . import jsonfile  # noqa: E402
 from .paths import ROOT, out_dir  # noqa: E402
 
 # Plausible on-demand prices per GPU-hour (USD), wide on purpose: they only catch a wrong machine or a typo.
@@ -193,47 +194,63 @@ def lambda_price() -> tuple[float, str] | None:
 
 # ---- ledger and meter ---------------------------------------------------------------------------------------------
 class Meter:
-    """The machine's billed time and price, kept in a JSON ledger next to the budget ledger."""
+    """The machine's billed time and price, in a JSON ledger next to the budget ledger. Several processes (one per
+    GPU, plus the dashboard) use it at once: every change is a locked read-modify-write (jsonfile.update), and every
+    reading starts from the file, so no process works from a stale copy."""
+
+    EMPTY = {"price": None, "segments": []}
 
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else out_dir() / "cost_ledger.json"
-        self.data = json.loads(self.path.read_text()) if self.path.exists() else {"price": None, "segments": []}
+        self.data = self._read()
 
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, indent=1))
-        tmp.replace(self.path)
+    def _read(self) -> dict:
+        return jsonfile.read(self.path) or {"price": None, "segments": []}
 
     @property
     def price(self) -> float | None:
         return (self.data.get("price") or {}).get("usd_per_hour")
 
-    def set_price(self, usd_per_hour: float, source: str, machine_gpus: list[tuple[str, int]]) -> None:
-        self.data["price"] = {"usd_per_hour": round(usd_per_hour, 4), "source": source, "set_at": time.time(),
-                              "gpus": gpu_signature(machine_gpus)}
-        self.observe()  # opens the segment of this machine start; the current segment takes the new price
-        self.save()
-
-    def observe(self, now: float | None = None) -> None:
-        """Note that this machine is up now (called by every budget check and dashboard frame)."""
-        if self.price is None:
-            return
-        now = now or time.time()
-        start = machine_start()
-        if start is None:
-            return
-        segments = self.data["segments"]
-        current = next((s for s in segments if abs(s["start"] - start) < 5), None)
+    @staticmethod
+    def _note(data: dict, start: float, now: float) -> None:
+        """Open the segment of this machine start, or extend it; it takes the current price."""
+        price = data["price"]["usd_per_hour"]
+        current = next((s for s in data["segments"] if abs(s["start"] - start) < 5), None)
         if current is None:
-            segments.append({"start": start, "last_seen": now, "usd_per_hour": self.price})
+            data["segments"].append({"start": start, "last_seen": now, "usd_per_hour": price})
         else:
             current["last_seen"] = max(current["last_seen"], now)
-            current["usd_per_hour"] = self.price
-        self.save()
+            current["usd_per_hour"] = price
+
+    def set_price(self, usd_per_hour: float, source: str, machine_gpus: list[tuple[str, int]]) -> None:
+        record = {"usd_per_hour": round(usd_per_hour, 4), "source": source, "set_at": time.time(),
+                  "gpus": gpu_signature(machine_gpus)}
+        start, now = machine_start(), time.time()
+
+        def change(data):
+            data.setdefault("segments", [])
+            data["price"] = record
+            if start is not None:
+                self._note(data, start, now)
+        self.data = jsonfile.update(self.path, change, default=lambda: {"price": None, "segments": []})
+
+    def observe(self, now: float | None = None) -> None:
+        """Note that this machine is up now (the main training process and the dashboard call this)."""
+        self.data = self._read()
+        start = machine_start()
+        if self.price is None or start is None:
+            return  # nothing is recorded before a price is set
+        now = now or time.time()
+
+        def change(data):
+            if data.get("price"):
+                self._note(data, start, now)
+        self.data = jsonfile.update(self.path, change, default=lambda: {"price": None, "segments": []})
 
     def spent(self, now: float | None = None) -> float:
-        """Dollars billed so far: closed segments up to when they were last seen; the live one up to now."""
+        """Dollars billed so far: closed segments up to when they were last seen; the live one up to `now`.
+        With the same `now`, every process gets the same number (OA_PLAN_TIME uses this)."""
+        self.data = self._read()
         if self.price is None:
             return 0.0
         now = now or time.time()

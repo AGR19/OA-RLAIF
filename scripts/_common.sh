@@ -51,7 +51,8 @@ need_gpus() {
       log "GPU index '$i' does not exist here (GPUs 0-$((NGPU - 1))); check VLLM_GPU / JUDGE_GPU / TRAIN_GPUS in .env"; exit 1; }
   done
 }
-train_launch() { need_gpus; CUDA_VISIBLE_DEVICES="$TRAIN_GPUS" .venv/bin/accelerate launch --num_processes "$NTRAIN" "$@"; }
+# OA_PLAN_TIME: one planning instant for every GPU process, so they all plan the same step count
+train_launch() { need_gpus; OA_PLAN_TIME="$(date +%s)" CUDA_VISIBLE_DEVICES="$TRAIN_GPUS" .venv/bin/accelerate launch --num_processes "$NTRAIN" "$@"; }
 budget_gate() { $PY -c "from oa_rlaif.budget import BudgetGuard; g=BudgetGuard(); g.check('$1'); print('budget ok:', g.summary())"; }
 vllm_up() {  # $1 = model path or id; serves on $VLLM_GPU for TRL rollouts
   need_gpus

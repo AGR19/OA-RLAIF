@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+from .. import jsonfile
 from ..budget import BudgetGuard, trainer_callback
 from ..io import read_yaml
 from ..paths import ROOT, data_dir, out_dir
@@ -68,7 +69,7 @@ def money_plan() -> dict | None:
     from ..cost import PLAN, make_plan
 
     path = out_dir() / "step_plan.json"
-    plans = json.loads(path.read_text()) if path.exists() else {}
+    plans = jsonfile.read(path, {})
     if "budget" in plans:
         return plans["budget"]
     guard = BudgetGuard()
@@ -76,15 +77,14 @@ def money_plan() -> dict | None:
         return None
     if not guard.price_known:
         raise SystemExit("[plan] no price recorded for this machine: run `python -m oa_rlaif.cost price` first")
-    plan = make_plan(guard.rate_usd_per_hour, guard.spent(), guard.stop_usd)
+    plan = make_plan(guard.rate_usd_per_hour, guard.spent(now=plan_time()), guard.stop_usd)
     if plan["training_usd"] < PLAN["min_training_usd"]:
         raise SystemExit(
             f"[plan] budget too small: at ${guard.rate_usd_per_hour:.2f}/h, ${plan['left_usd']:.0f} is left and the "
             f"evaluations, export and uploads need ~${plan['fixed_usd']:.0f}, so training would get "
             f"${plan['training_usd']:.0f}. Use a cheaper machine or check the price (python -m oa_rlaif.cost status).")
-    plans["budget"] = plan
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plans, indent=1))
+    if jsonfile.is_main_process():  # every GPU process computes the same plan; one writes it
+        jsonfile.update(path, lambda data: data.setdefault("budget", plan))
     print(f"[plan] budget: ${plan['left_usd']:.0f} left at ${plan['usd_per_hour']:.2f}/h; training gets "
           f"${plan['training_usd']:.0f} " + str({k: f"${v:.0f}" for k, v in plan["allocated_usd"].items()}))
     return plan
@@ -99,7 +99,7 @@ def steps_for_money(stage: str, seconds_per_step: float, full: int, cap: int | N
     if plan is None:  # unbilled machine (the Mac): no money limit
         return limit, {"stage": stage, "full_steps": full, "steps": limit, "seconds_per_step": round(seconds_per_step, 2)}
     guard = BudgetGuard()
-    allowed = stage_dollars(plan, stage, guard.rate_usd_per_hour, guard.spent(), guard.stop_usd)
+    allowed = stage_dollars(plan, stage, guard.rate_usd_per_hour, guard.spent(now=plan_time()), guard.stop_usd)
     usd_per_step = guard.rate_usd_per_hour * seconds_per_step / 3600
     steps = max(1, min(limit, int(allowed * 0.9 / max(usd_per_step, 1e-9))))
     return steps, {"stage": stage, "full_steps": full, "steps": steps, "seconds_per_step": round(seconds_per_step, 2),
@@ -107,20 +107,22 @@ def steps_for_money(stage: str, seconds_per_step: float, full: int, cap: int | N
                    "forecast_usd": round(steps * usd_per_step, 2), "usd_per_hour": guard.rate_usd_per_hour}
 
 
+def plan_time() -> float:
+    """The moment the plan is made. The GPU launcher sets OA_PLAN_TIME once for all its processes, so every process
+    computes the money left at the same instant and plans the same number of steps (different step counts would
+    leave the processes waiting for each other at the end)."""
+    return float(os.environ.get("OA_PLAN_TIME") or time.time())
+
+
 def write_plan(stage: str, plan: dict) -> None:
-    path = out_dir() / "step_plan.json"
-    plans = json.loads(path.read_text()) if path.exists() else {}
-    plans[stage] = plan
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plans, indent=1))
+    if jsonfile.is_main_process():
+        jsonfile.update(out_dir() / "step_plan.json", lambda data: data.__setitem__(stage, plan))
 
 
 def record_dry_run(**values) -> None:
     """Merge throughput measurements into outputs/dry_run.json (SDFT and GRPO write separately)."""
-    path = out_dir() / "dry_run.json"
-    data = json.loads(path.read_text()) if path.exists() else {}
-    data.update(values)
-    path.write_text(json.dumps(data, indent=1))
+    if jsonfile.is_main_process():
+        jsonfile.update(out_dir() / "dry_run.json", lambda data: data.update(values))
 
 
 def out_path(relative: str) -> Path:
@@ -133,7 +135,8 @@ def runtime_kwargs(cfg: dict, generation: bool = True) -> dict:
     if cfg.get("smoke"):
         # OA_SMOKE_GC=1: gradient checkpointing on, as on the GPU box (checks LoRA gradients flow through it)
         gc = os.environ.get("OA_SMOKE_GC") == "1"
-        return {"bf16": False, "gradient_checkpointing": gc, **({"use_vllm": False} if generation else {})}
+        # use_cpu: plain CPU, also for multi-process rehearsals (Apple's MPS device does not support them)
+        return {"bf16": False, "use_cpu": True, "gradient_checkpointing": gc, **({"use_vllm": False} if generation else {})}
     v = cfg["vllm"]
     vllm = {"use_vllm": True, "vllm_mode": "server", "vllm_server_host": v["server_host"], "vllm_server_port": v["server_port"]}
     return {"bf16": True, "gradient_checkpointing": True, **(vllm if generation else {})}

@@ -333,3 +333,19 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - The GPU-mode configs (bf16, vLLM server) build without errors.
   - On 12,000 GRPO episodes, the gold reply gets the full gold term and a wrong pick always scores lower.
   - The OPSD teacher sees the reference answer at runtime; the student does not. Gemma 4's chat template defaults to thinking off, as do eval, OPSD and GRPO.
+
+## 2026-10-12 — Vast.ai dry run crashed: multi-process ledger race (FileNotFoundError on cost_ledger.tmp)
+- **Cause:** the cost meter and the budget ledger wrote one fixed temporary name (`*.tmp`) from every GPU process and the dashboard. Concurrent renames failed, and readers could see half-written JSON. The single-process Mac rehearsal could not show it.
+- **Also found:**
+  - (a) Each GPU process recorded its own run time, and the guard summed them, so 3 processes counted 3 machine-hours per hour and the guard would stop at about a third of the budget.
+  - (b) Each process planned its steps from "spent now", and the processes could disagree, which would hang at the end.
+  - (c) The $450 stop was decided per process, so a hang was possible at the limit.
+- **Fix:**
+  - `src/oa_rlaif/jsonfile.py` (stdlib): `update()` does a locked (fcntl) read-modify-write with in-place edits (return values ignored) and an atomic write through a writer-unique temp name.
+  - The Meter, the budget ledger, the step plan and the dry-run timings use it. Only the main process (RANK/LOCAL_RANK 0) writes run records, plans and timings; API spend from every process is added under the lock.
+  - Spend = the machine meter once a price is recorded: one machine.
+  - `OA_PLAN_TIME` is set once per `train_launch`, so all processes plan identical steps.
+  - `budget.any_process()` all-reduces the stop decision.
+  - The rehearsal uses `use_cpu=True`, since MPS breaks multi-process runs.
+- **Tests:** `tests/test_concurrency.py` (4 processes hammering the ledgers; it failed before the fix with FileNotFoundError and JSONDecodeError). A real 2-process `accelerate launch --cpu` of the OPSD, SFT and GRPO trainers (billable, KV-shared tiny model, gradient checkpointing) trained every lora_B. Linux container 3/3; full suite 65 passed; Mac rehearsal 13/13.
+- **Performance note from the Vast log:** vLLM weight sync sends `embed_tokens_per_layer` (5.6 GB, frozen) every step; OPSD dry run ≈ 21 s/step. The money planner sizes steps from the measured speed; syncing only changed weights would be a later speed-up.

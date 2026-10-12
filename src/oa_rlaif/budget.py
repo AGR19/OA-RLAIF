@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import jsonfile
 from .paths import out_dir
 
 
@@ -45,48 +46,57 @@ class BudgetGuard:
         self._ledger = self._read()
         self._run_start = time.time()
         self._run_key = f"run-{int(self._run_start)}-{os.getpid()}"
+        self._main = jsonfile.is_main_process()
 
     def _read(self) -> dict:
-        if self.ledger_path.exists():
-            return json.loads(self.ledger_path.read_text())
-        return {"gpu_runs": {}, "api": {}}
-
-    def _write(self) -> None:
-        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.ledger_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(self._ledger, indent=2))
-        temporary.replace(self.ledger_path)
+        return jsonfile.read(self.ledger_path) or {"gpu_runs": {}, "api": {}}
 
     # ---- recording -------------------------------------------------------------------------
+    # Several processes share this ledger (one per GPU, plus scripts): every change is a locked read-modify-write.
     def tick(self, stage: str = "") -> None:
-        """Record this run's elapsed GPU time (idempotent; call as often as you like)."""
-        if not self.billable:
+        """Note that the machine is up and record this run's time. Only the main process of a multi-GPU launch
+        records: it is one machine, however many GPU processes run on it."""
+        if not self.billable or not self._main:
             return
         self._meter.observe()
-        seconds = time.time() - self._run_start
-        self._ledger["gpu_runs"][self._run_key] = {"stage": stage, "seconds": seconds,
-                                                   "rate_usd_per_hour": self.rate_usd_per_hour}
-        self._write()
+        entry = {"stage": stage, "seconds": time.time() - self._run_start, "rate_usd_per_hour": self.rate_usd_per_hour}
+
+        def change(data):
+            data.setdefault("api", {})
+            data.setdefault("gpu_runs", {})[self._run_key] = entry
+        self._ledger = jsonfile.update(self.ledger_path, change, default=lambda: {"gpu_runs": {}, "api": {}})
 
     def add_api(self, service: str, usd: float, tokens_in: int = 0, tokens_out: int = 0) -> None:
-        entry = self._ledger["api"].setdefault(service, {"usd": 0.0, "tokens_in": 0, "tokens_out": 0, "calls": 0})
-        entry["usd"] += usd
-        entry["tokens_in"] += tokens_in
-        entry["tokens_out"] += tokens_out
-        entry["calls"] += 1
-        self._write()
+        """API spend from any process (each GPU process calls the judge): added under the lock, never lost."""
+        def change(data):
+            data.setdefault("gpu_runs", {})
+            entry = data.setdefault("api", {}).setdefault(service, {"usd": 0.0, "tokens_in": 0, "tokens_out": 0,
+                                                                    "calls": 0})
+            entry["usd"] += usd
+            entry["tokens_in"] += tokens_in
+            entry["tokens_out"] += tokens_out
+            entry["calls"] += 1
+        self._ledger = jsonfile.update(self.ledger_path, change, default=lambda: {"gpu_runs": {}, "api": {}})
 
     # ---- reading ---------------------------------------------------------------------------
-    def gpu_usd(self) -> float:
-        """GPU spend: the larger of the per-process records and the machine's billed time (oa_rlaif.cost.Meter)."""
-        ledger = sum(r["seconds"] / 3600 * r["rate_usd_per_hour"] for r in self._ledger["gpu_runs"].values())
-        return max(ledger, self._meter.spent() if self.billable else 0.0)
+    def gpu_usd(self, now: float | None = None) -> float:
+        """The machine's billed time x its price (oa_rlaif.cost.Meter) once a price is recorded: one machine, not one
+        per GPU process. Without a recorded price: the run records (written by the main process only)."""
+        if not self.billable:
+            return 0.0
+        metered = self._meter.spent(now)
+        if self._meter.price:
+            return metered
+        self._ledger = self._read()
+        return sum(r["seconds"] / 3600 * r["rate_usd_per_hour"] for r in self._ledger["gpu_runs"].values())
 
     def api_usd(self) -> float:
+        self._ledger = self._read()
         return sum(v["usd"] for v in self._ledger["api"].values())
 
-    def spent(self) -> float:
-        return self.gpu_usd() + self.api_usd()
+    def spent(self, now: float | None = None) -> float:
+        """With the same `now`, every process gets the same number (the planner passes OA_PLAN_TIME)."""
+        return self.gpu_usd(now) + self.api_usd()
 
     def remaining(self) -> float:
         return self.budget_usd - self.spent()
@@ -116,14 +126,37 @@ class BudgetGuard:
         }
 
 
+def any_process(flag: bool) -> bool:
+    """True if any GPU process says True. Every process must stop at the same step: one that stops alone leaves
+    the others waiting forever in the next collective operation."""
+    try:
+        import torch
+        import torch.distributed as dist
+
+        if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+            device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+            value = torch.tensor([1.0 if flag else 0.0], device=device)
+            dist.all_reduce(value, op=dist.ReduceOp.MAX)
+            return bool(value.item())
+    except Exception:  # noqa: BLE001 (no process group: a single process decides alone)
+        pass
+    return flag
+
+
 def trainer_callback(guard: BudgetGuard, stage: str):
-    """HF/TRL TrainerCallback: saves a checkpoint and stops training cleanly at the stop threshold."""
+    """HF/TRL TrainerCallback: saves a checkpoint and stops training cleanly at the stop threshold, in every GPU
+    process at the same step."""
     from transformers import TrainerCallback
 
     class BudgetCallback(TrainerCallback):
         def on_step_end(self, args, state, control, **kwargs):
-            guard.tick(stage)
-            if guard.spent() >= guard.stop_usd:
+            try:
+                guard.tick(stage)
+                over = guard.spent() >= guard.stop_usd
+            except Exception as error:  # noqa: BLE001 (a ledger problem must not desynchronise the processes)
+                print(f"[budget] check failed this step ({type(error).__name__}: {error}); continuing")
+                over = False
+            if any_process(over):
                 control.should_save = True
                 control.should_training_stop = True
             return control
