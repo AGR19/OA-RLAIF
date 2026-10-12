@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# One-time install on the GPU box. Downloads happen only here.
-# Lambda (4xB200, Ubuntu, Docker preinstalled) runs it directly; CoreWeave and Vast.ai run it from scripts/cloud_setup.sh
-# after the price, system packages and Docker are in place (the price lines below then keep CoreWeave's value).
+# One-time install of the Python side on the GPU box. Downloads happen only here.
+# Every platform runs it from scripts/cloud_setup.sh, after the price (oa_rlaif.cost), the system packages and the
+# agent sandbox (Docker installed on the host by scripts/sandbox_setup.sh) are in place.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -10,7 +10,6 @@ uv venv .venv --python 3.11
 uv pip sync --python .venv/bin/python requirements-train.txt
 [ -f .env ] || cp .env.example .env
 grep -q '^OA_BILLABLE=' .env || echo 'OA_BILLABLE=1' >> .env          # GPU time counts against the budget here
-grep -q '^OA_GPU_USD_PER_HOUR=' .env || echo 'OA_GPU_USD_PER_HOUR=27.16' >> .env
 # Gemma 4 E4B weights (one-time; afterwards HF_HUB_OFFLINE=1 is set by the trainers)
 OA_ALLOW_HUB_DOWNLOAD=1 .venv/bin/hf download google/gemma-4-E4B-it
 # Gemma 4 26B-A4B (51.6 GB, not gated): the local GRPO judge served by vLLM on GPU 3 (scripts/60_grpo.sh)

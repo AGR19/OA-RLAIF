@@ -26,13 +26,14 @@
 #
 # Resumable: finished steps are skipped on the next run (outputs/stages/<step>.done). After a failure the dashboard
 # shows the end of that step's log; fix the cause and run the same command again.
-# Budget: the machine's wall-clock time since the first start counts (OA_GPU_USD_PER_HOUR); every billable step
-# stops at $450 of $500, and the dry run shrinks the training slots if the price needs it.
+# Budget (src/oa_rlaif/cost.py): the price of THIS machine (provider API, else asked and checked against its GPUs)
+# times the machine's billed time since it started; every billable step stops at $450 of $500. The training stages
+# get shares of the money left (OPSD 40%, GRPO 40%, SFT 20%), not time slots.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PLATFORM="${1:?usage: scripts/run_all.sh lambda|coreweave|vast}"
 case "$PLATFORM" in
-  lambda)    SETUP=scripts/lambda_setup.sh;    WHERE="Lambda"
+  lambda)    SETUP="scripts/cloud_setup.sh lambda"; WHERE="Lambda"
              RELEASE="TERMINATE THE INSTANCE in the Lambda console. Billing continues until you do." ;;
   coreweave) SETUP="scripts/cloud_setup.sh coreweave"; WHERE="CoreWeave"
              RELEASE="RELEASE THE COREWEAVE NODE: delete the pod or instance, or scale its node pool to 0. Billing continues until you do." ;;
@@ -56,9 +57,13 @@ if [ "${ngpu:-0}" -lt "${OA_MIN_GPUS:-4}" ] || [ "${gpu_gb:-0}" -lt "${OA_MIN_GP
 fi
 envval() { grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"' || true; }
 
-if [ "$PLATFORM" != lambda ]; then
-  scripts/price.sh "$PLATFORM"        # asks once for the hourly price, shows what the budget buys
+# python3 runs the price calculator and the dashboard before anything else is installed
+if ! command -v python3 >/dev/null; then
+  SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update -qq
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq python3 >/dev/null
 fi
+scripts/price.sh "$PLATFORM"          # the price of THIS machine (provider API, else asked and checked); what it buys
 [ -f outputs/stages/run.start ] || date +%s > outputs/stages/run.start
 DASH="python3 scripts/dashboard.py --clear"
 
@@ -84,11 +89,10 @@ stage() {
 }
 
 stage setup $SETUP
-# the dashboard and the HF login read these from .env (written by the setup scripts)
-export OA_GPU_USD_PER_HOUR="${OA_GPU_USD_PER_HOUR:-$(envval OA_GPU_USD_PER_HOUR)}"
+# the HF login reads this from .env (written by the setup script)
 HF_HOME_ENV="$(envval HF_HOME)"; [ -n "$HF_HOME_ENV" ] && export HF_HOME="$HF_HOME_ENV"
-# Pods and containers can restart and lose the Docker daemon: make sure the sandbox works (seconds when it does)
-if [ "$PLATFORM" != lambda ]; then scripts/sandbox_setup.sh --start; fi
+# A restart can stop the Docker daemon: make sure the sandbox works (seconds when it does)
+scripts/sandbox_setup.sh --start
 
 # Hugging Face login, once (the token stays in your terminal and in the HF cache on this machine).
 if ! .venv/bin/hf auth whoami >/dev/null 2>&1; then

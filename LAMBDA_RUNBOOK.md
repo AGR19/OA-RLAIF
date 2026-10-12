@@ -17,7 +17,7 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 2. Copy the project over, using either:
    - `scripts/sync_to_lambda.sh ubuntu@<ip>` (rsync from the Mac), or
    - `python -m oa_rlaif.data.hf_push --pull` on the instance (private HF datasets).
-3. On the instance: `scripts/lambda_setup.sh`. This is the only download step: wheels from the lock, Gemma 4 E4B weights, the Docker base image and llama.cpp.
+3. On the instance: `scripts/cloud_setup.sh lambda`. This is the only download step: system packages, Docker Engine (installed on the host; nothing is assumed), wheels from the lock, the Gemma 4 E4B and A4B weights, the sandbox image and llama.cpp.
 4. Edit `.env`: `HF_NAMESPACE` (gonibeed). The `JUDGE_*` settings are not needed on Lambda, because `60_grpo.sh` points the judge at the local server. `OA_BILLABLE=1` is set by the setup script.
 5. `scripts/00_check_env.sh` must show 4 GPUs at sm_100, the SDFTTrainer import, the Docker image, data present and both weight snapshots cached (E4B and the 26B-A4B judge).
 
@@ -37,7 +37,7 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 | Eval SFT | `scripts/50_eval.sh sft` | 0–3 | 45 m |
 | Results tables + push | `python -m oa_rlaif.eval.report`, then `hf_push --results` | — | 7 m |
 
-**Budget.** At ~$27.16/h, the plan is ≈15 h ≈ $411. `outputs/budget_ledger.json` accumulates every run. At $450 the trainers save a checkpoint and stop.
+**Budget.** In dollars (`src/oa_rlaif/cost.py`): the price of this instance (Lambda API with `LAMBDA_API_KEY`, else asked and checked against the GPUs), spend = the machine's billed time from its start. At 4×B200 ($27.16/h) training gets ≈ $278 (OPSD $111, GRPO $111, SFT $56). At $450 the trainers save a checkpoint and stop. `python -m oa_rlaif.cost status` shows the numbers.
 
 **Watching for cheating** during GRPO (step 14 of the original plan):
 - `outputs/grpo_samples/step_*.jsonl`;
@@ -53,6 +53,8 @@ Copy `outputs/` back to the persistent filesystem before terminating.
 
 ## One command (start here)
 **Instance:** 4×B200 (the plan), or at least 4 GPUs with 80 GB or more each (H100, H200, A100 80GB). The command checks this first and stops before installing anything on a smaller instance (for example 1×A100 40GB).
+
+The command installs everything on the host itself: system packages, Docker Engine, the Python requirements from the lock, the weights and llama.cpp. It asks once for the **price of the instance** (or reads it from the Lambda API if `.env` has `LAMBDA_API_KEY`) and refuses a price that does not fit the GPUs.
 
 Before you start:
 1. Create a GitHub token (read access to `AGR19/OA-RLAIF`) at github.com/settings/tokens.
@@ -74,7 +76,7 @@ The terminal shows a live dashboard: the total progress bar, the current step (e
 | 2 | data | download the private datasets | 5 m |
 | 3 | check_env | 4 GPUs, libraries, data, Docker agent test. **Stops here if anything is wrong** | 5 m |
 | 4 | gguf_check | convert the base model to GGUF (proves export works before training) | 15 m |
-| 5 | dry_run | time OPSD, SFT and GRPO (with the judge); plan step counts that fit the time slots | 40 m |
+| 5 | dry_run | time OPSD, SFT and GRPO (with the judge); check the judge; plan step counts from the money left | 40 m |
 | 6 | baseline | base E4B: held-out sets + agent episodes | 45 m |
 | 7 | sdft | Stage 1 OPSD (on-policy self-distillation; the teacher sees the gold answer), then merge | ≤ 4 h |
 | 8 | eval_sdft | OPSD model: held-out sets + agent episodes | 45 m |
@@ -87,7 +89,7 @@ The terminal shows a live dashboard: the total progress bar, the current step (e
 | 15 | report | results tables: base / SFT / OPSD / OPSD→GRPO, ICD-11↔SNOMED, agents, OAEI row | 2 m |
 | 16 | results | private HF dataset `oa-rlaif-results` (tables, metrics, ICD-11↔SNOMED SSSOM) | 5 m |
 
-The total is about 15 h and about $411; the budget guard stops every billable step at $450. Steps 3–5 are the safety checks: a problem shows within the first hour (about $30). The time slots (OPSD 4 h, GRPO 4 h, SFT 2 h) are in `configs/train.yaml`; the dry run turns them into step counts (`outputs/step_plan.json`).
+At 4×B200 the total is about 16 h and stays under the $450 stop. Steps 3–5 are the safety checks: a problem shows within the first hour. The plan is in dollars: after the dry run, the money left minus the fixed stages (less a 5% reserve) is shared OPSD 40%, GRPO 40%, SFT 20%, and each stage runs the steps its share pays for (`outputs/step_plan.json`), re-checked at the start of each stage.
 
 The SFT arm is part of every run (it is not optional). It runs after the GGUF push, so a late problem cannot lose the main model.
 

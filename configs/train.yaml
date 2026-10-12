@@ -40,10 +40,10 @@ sdft:
   save_steps: 500
   logging_steps: 10
   max_steps: -1                         # -1: planned from the dry run (train.common.plan_steps)
-  time_budget_hours: 4.0                # OPSD wall-clock slot on 4xB200; steps = min(2 epochs, what fits)
+  # steps = min(2 epochs, what OPSD's share of the training money buys): oa_rlaif.cost.PLAN, train.common.plan_steps
 
 sft:                                    # compulsory comparison row: plain SFT on the same rows as OPSD
-  time_budget_hours: 2.0                # same number of steps as OPSD (fair comparison), capped by this slot
+  # same number of steps as OPSD (fair comparison), capped by what SFT's share of the money buys
   max_steps: -1
 
 grpo:
@@ -64,15 +64,12 @@ grpo:
   save_steps: 200
   logging_steps: 5
   max_steps: -1                         # -1: planned from the dry run (train.common.plan_steps)
-  time_budget_hours: 4.0                # GRPO wall-clock slot, judge included (the dry run measures with the judge)
+  # steps = min(1 epoch, what GRPO's share buys; the dry run measures the step cost with the judge)
   sample_dump_every: 50                 # write completions for manual reading (reward-hacking checks)
   dral_temperature: 0.1
   judge_fraction: 1.0                   # share of prompts judged (whole groups); size it to the API quota, see LAMBDA_RUNBOOK
 
-budget_plan:                            # train.common.slot_scale: fit the training slots to the real hourly price
-  fixed_hours: 4.5                      # stages after the dry run that do not train: 3 evaluations + baseline, export,
-                                        # uploads, 3 merges (dashboard estimates, 4xB200 layout)
-  min_slot_scale: 0.05                  # below this (30 min of training in all) the dry run stops and says why
+# The budget plan is in dollars, not hours: shares, reserve and fixed-stage estimates in src/oa_rlaif/cost.py (PLAN).
 
 eval:
   max_new_tokens: 256

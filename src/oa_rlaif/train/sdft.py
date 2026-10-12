@@ -18,7 +18,8 @@ import time
 from ..budget import BudgetGuard
 from ..paths import ROOT, out_dir
 from .common import (load_config, load_jsonl_dataset, load_model, lora_config, offline_after_download, out_path,
-                     plan_steps, progress_callback, record_dry_run, runtime_kwargs, sdft_paths, slot_scale)
+                     plan_steps, progress_callback, record_dry_run, runtime_kwargs, sdft_paths, steps_for_money,
+                     write_plan)
 
 
 def sdft_args(cfg: dict, max_steps: int):
@@ -40,19 +41,18 @@ def sdft_args(cfg: dict, max_steps: int):
 
 
 def plan_sft_steps(cfg: dict, train) -> int:
-    """SFT runs as many steps as OPSD (same rows, same batch: a fair comparison), capped by the SFT time slot."""
+    """SFT runs as many steps as OPSD (same rows, same batch: a fair comparison), capped by what its money buys."""
     plans = json.loads((out_dir() / "step_plan.json").read_text()) if (out_dir() / "step_plan.json").exists() else {}
     s = cfg["sdft"]
     rows_per_step = s["per_device_batch"] * s["grad_accum"] * max(1, int(os.environ.get("WORLD_SIZE", "1")))
     opsd = plans.get("sdft", {}).get("steps") or plan_steps(cfg, "sdft", len(train), rows_per_step, s["epochs"])
     measured = (cfg.get("dry_run") or {}).get("sft_seconds_per_step")
-    hours_slot = cfg["sft"]["time_budget_hours"] * slot_scale(cfg)
-    if (out_dir() / "step_plan.json").exists():  # slot_scale may have added the budget plan
-        plans = json.loads((out_dir() / "step_plan.json").read_text())
-    steps = opsd if not measured else max(1, min(opsd, int(hours_slot * 3600 * 0.9 / measured)))
-    plans["sft"] = {"stage": "sft", "steps": steps, "opsd_steps": opsd, "seconds_per_step": measured,
-                    "hours_slot": round(hours_slot, 3)}
-    (out_dir() / "step_plan.json").write_text(json.dumps(plans, indent=1))
+    if not measured:
+        write_plan("sft", {"stage": "sft", "steps": opsd, "opsd_steps": opsd})
+        return opsd
+    steps, plan = steps_for_money("sft", measured, opsd)
+    plan["opsd_steps"] = opsd
+    write_plan("sft", plan)
     print(f"[plan] sft: {steps} steps (OPSD runs {opsd})")
     return steps
 

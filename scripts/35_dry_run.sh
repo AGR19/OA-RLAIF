@@ -5,7 +5,7 @@
 #   3. reward check (gold replies -> DRAL-OA + judge), then 10 GRPO steps WITH the local A4B judge
 #      (policy + judge share the last GPU), so the judge cost is in the timing
 # 40_sdft.sh and 60_grpo.sh then plan their step counts from these timings (train.common.plan_steps):
-# steps = min(full epochs, what fits time_budget_hours in configs/train.yaml).
+# steps = min(full epochs, what each stage's share of the money buys) - oa_rlaif.cost.
 . "$(dirname "$0")/_common.sh"
 need_gpus
 budget_gate dry_run

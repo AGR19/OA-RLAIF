@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The mini-SWE-agent sandbox on a cloud GPU box (CoreWeave, Vast.ai; Lambda has Docker preinstalled).
+# The mini-SWE-agent sandbox on a GPU box (Lambda, CoreWeave, Vast.ai). Docker is never assumed: it is installed.
 #
 #   scripts/sandbox_setup.sh            Docker if it can run here, else (if allowed) the user sandbox; self-test
 #   scripts/sandbox_setup.sh --start    only make sure it still works (run_all.sh calls this on every run)
@@ -35,7 +35,7 @@ cap_sys_admin() {   # bit 21 of the effective capabilities: needed to run docker
   local hex; hex="$(awk '/^CapEff/ { print $2 }' /proc/self/status 2>/dev/null || echo 0)"
   [ $(( (16#${hex:-0} >> 21) & 1 )) -eq 1 ]
 }
-apt_get() { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get "$@"; }
+apt_get() { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 "$@"; }  # waits for apt's lock
 
 add_docker_repo() {
   . /etc/os-release

@@ -4,7 +4,7 @@ The same pipeline as on Lambda (`LAMBDA_RUNBOOK.md`), started with one command: 
 
 | Vast.ai difference | What the scripts do |
 |---|---|
-| Each host sets its own price; storage (and on some hosts, internet traffic) is billed too | Ask once for the instance's $/hr. Show what the $450 stop buys. The budget guard counts the machine's wall-clock time from the first start, and the dry run fits the OPSD, GRPO and SFT slots to the money left. |
+| Each host sets its own price; storage (and on some hosts, internet traffic) is billed too | The cost calculator reads this instance's price (`dph_total`) from the Vast.ai API with the key Vast places inside every instance, and asks only if that fails. Spend is the machine's billed time from its start; the training stages share the money left (OPSD 40%, GRPO 40%, SFT 20%). |
 | A normal instance is itself an unprivileged Docker container, so it cannot run Docker | The agent evaluations use the **user sandbox** (below). On a VM instance, where Docker can run, Docker is installed and used instead. |
 | Any GPU count and type | The GPU layout follows the count and size. On GPUs under 150 GB, the A4B judge gets its own GPU. |
 | The disk size is fixed when you create the instance | The setup checks for at least 180 GB free and stops early if there is less. |
@@ -29,7 +29,7 @@ cd /workspace 2>/dev/null || cd ~; git clone https://github.com/AGR19/OA-RLAIF.g
 scripts/vast_all.sh
 ```
 
-1. It asks for the **$/hr of this instance** (shown on the Vast.ai Instances page) and shows what the budget buys. Then it asks you to confirm.
+1. It reads the **price of this instance** from the Vast.ai API (or asks for the $/hr on the Instances page) and shows what the budget buys. Then it asks you to confirm.
 2. The setup installs the system packages and checks `/dev/shm` and the disk. It sets up the agent sandbox and self-tests it. Then it installs the pinned Python packages and downloads the E4B and A4B weights.
 3. It asks once for your **Hugging Face token**. After that, everything runs without input, with the live dashboard.
 
@@ -52,15 +52,15 @@ The self-test shows which case applies. Table 2's caption in the report states t
 
 ## 4. What the budget buys
 
-The $450 stop divided by the instance price gives the hours. About 6 h go to everything except training: setup, checks, dry run, baseline, three evaluations, export and uploads. Training gets the rest, up to the planned 10 h (OPSD 4 h, GRPO 4 h, SFT 2 h):
+The calculator (`src/oa_rlaif/cost.py`) works in dollars, not time slots. At the end of the dry run, the money left before the $450 stop, minus what the remaining evaluations, export and uploads will cost at this price (about 4.3 h of machine time), less a 5% reserve, is the **training money**. It is shared out OPSD 40%, GRPO 40%, SFT 20%. Each stage runs the steps its share pays for (price × measured seconds per step), and never more than its full epochs. At the start of each training stage the share is checked again against the money really left, so an overrun in OPSD makes GRPO shorter instead of breaking the budget. Roughly:
 
-  training hours ≈ min(10, 450 / price − 6)
+  training money ≈ 0.95 × ($450 − 5.8 h × price)
 
-| Example price (not a quote) | Hours for $450 | Training time |
-|---|---:|---:|
-| $15/h | 30 | 10 h (full slots) |
-| $25/h | 18 | 10 h (full slots) |
-| $35/h | 12.9 | ≈ 6.9 h |
-| $60/h | 7.5 | ≈ 1.5 h |
+| Example price (not a quote) | Training money | OPSD / GRPO / SFT | Training time |
+|---|---:|---:|---:|
+| $15/h | $345 | $138 / $138 / $69 | ≈ 23.0 h |
+| $25/h | $290 | $116 / $116 / $58 | ≈ 11.6 h |
+| $35/h | $235 | $94 / $94 / $47 | ≈ 6.7 h |
+| $60/h | $97 | $39 / $39 / $19 | ≈ 1.6 h |
 
-The dry run fixes the exact slots from the measured speed and the money really left (`outputs/step_plan.json["budget"]`).
+On a cheap machine each stage can run until its full epochs (more steps, longer wall-clock time). `python -m oa_rlaif.cost status` shows the live numbers.

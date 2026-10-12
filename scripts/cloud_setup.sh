@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Cloud GPU box (CoreWeave, Vast.ai): one-time setup, stage 1 of coreweave_all.sh / vast_all.sh. Safe to run again.
-#   scripts/cloud_setup.sh coreweave|vast
+# GPU box (Lambda, CoreWeave, Vast.ai): one-time setup, stage 1 of lambda_all.sh / coreweave_all.sh / vast_all.sh.
+# Nothing is assumed on the host: Docker, build tools and the Python requirements are all installed here.
+# Safe to run again.
+#   scripts/cloud_setup.sh lambda|coreweave|vast
 #   1. the hourly price (scripts/price.sh; asks only if .env has none)
 #   2. system packages the install needs (images differ: PyTorch images often lack cmake, slim ones git/curl)
 #   3. shared memory and disk checks (Kubernetes pods default to a 64 MB /dev/shm, which crashes NCCL and vLLM)
@@ -11,7 +13,7 @@
 # repo: put the repo on the large persistent volume and they survive a pod restart.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PLATFORM="${1:-coreweave}"
+PLATFORM="${1:-lambda}"
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 say() { echo "[setup] $*"; }
 touch .env
@@ -31,8 +33,8 @@ dpkg -s libssl-dev >/dev/null 2>&1 || pkgs+=(libssl-dev)                       #
 dpkg -s libcurl4-openssl-dev >/dev/null 2>&1 || pkgs+=(libcurl4-openssl-dev)   # llama.cpp build (older tags)
 if [ "${#pkgs[@]}" -gt 0 ]; then
   say "installing: ${pkgs[*]}"
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" >/dev/null
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update -qq
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq "${pkgs[@]}" >/dev/null
 fi
 
 # 3. shared memory and disk

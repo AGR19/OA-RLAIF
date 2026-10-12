@@ -4,8 +4,8 @@ The same pipeline as on Lambda (`LAMBDA_RUNBOOK.md`), started with one command: 
 
 | CoreWeave difference | What the scripts do |
 |---|---|
-| You pay per machine hour, and prices vary by contract | Ask once for the hourly price of the machine. Show what the $450 stop buys before anything runs. The budget guard counts the machine's wall-clock time from the first start. |
-| A higher price than Lambda's $27.16/h | The dry run shrinks the OPSD, GRPO and SFT time slots evenly, so the run still ends with the GGUF, every evaluation and the SFT row inside the budget. If too little is left for training, the dry run stops and says why. |
+| You pay per machine hour, and prices vary by contract | The cost calculator records the price of this machine. It asks you, and refuses a price that is implausible for the GPUs `nvidia-smi` reports. It shows what the $450 stop buys before anything runs. Spend is the machine's billed time from its own start, across restarts. |
+| A higher price than Lambda's | The plan is in dollars: the training stages share what is left after the fixed stages, so the run still ends with the GGUF, every evaluation and the SFT row inside the budget. If too little is left for training, the dry run stops and says why. |
 | Docker is often missing, and pods cannot always run it | `scripts/sandbox_setup.sh` installs Docker Engine and starts it. It detects the machine type (case table below). |
 | 8 GPUs per node, sometimes H100/H200 instead of B200 | The GPU layout follows the GPU count and size (layout table below). |
 | Pods get a 64 MB `/dev/shm` | The setup stops with the pod-spec fix, because NCCL and vLLM crash with so little shared memory. |
@@ -79,17 +79,19 @@ If your connection drops, run `tmux attach -t run`. If a step fails, fix the cau
 
 ## 3. What the budget buys
 
-The $450 stop divided by the machine price gives the hours. About 6 h of them go to everything except training: setup, checks, dry run, baseline, three evaluations, export and uploads. Training gets the rest, up to the planned 10 h (OPSD 4 h, GRPO 4 h, SFT 2 h).
+The calculator (`src/oa_rlaif/cost.py`) works in dollars, not time slots. At the end of the dry run, the money left before the $450 stop, minus what the remaining evaluations, export and uploads will cost at this price (about 4.3 h of machine time), less a 5% reserve, is the **training money**. It is shared out OPSD 40%, GRPO 40%, SFT 20%. Each stage runs the steps its share pays for (price × measured seconds per step), and never more than its full epochs. At the start of each training stage the share is checked again against the money really left, so an overrun in OPSD makes GRPO shorter instead of breaking the budget. Roughly:
 
-| Machine price | Hours for $450 | Training time | Slots |
-|---|---:|---:|---|
-| $27.16/h (Lambda 4×B200, for comparison) | 16.6 | 10 h | full |
-| $34.11/h (8×B200, lowest published CoreWeave spot rate) | 13.2 | ≈ 7.2 h | ×0.72 |
-| $34.40/h (4 GPUs at $8.60 per GPU-hour) | 13.1 | ≈ 7.1 h | ×0.71 |
-| $68.80/h (8×B200 on-demand list price) | 6.5 | ≈ 0.5 h | ×0.05: the dry run may stop |
+  training money ≈ 0.95 × ($450 − 5.8 h × price)
+
+| Machine price | Training money | OPSD / GRPO / SFT | Training time |
+|---|---:|---:|---:|
+| $27.16/h (Lambda 4×B200, for comparison) | $278 | $111 / $111 / $56 | ≈ 10.2 h |
+| $34.11/h (8×B200, lowest published CoreWeave spot rate) | $240 | $96 / $96 / $48 | ≈ 7.0 h |
+| $34.40/h (4 GPUs at $8.60 per GPU-hour) | $238 | $95 / $95 / $48 | ≈ 6.9 h |
+| $68.80/h (8×B200 on-demand list price) | $48 | $19 / $19 / $10 | ≈ 0.7 h |
 
 These are third-party figures for CoreWeave's rate card; enter what you actually pay. At the 8×B200 on-demand list price, $500 does not pay for a useful training run. Use spot capacity, a 4-GPU machine billed per GPU, or a contract price.
 
 ## 4. Results
 
-The outputs are the same as on Lambda (`LAMBDA_RUNBOOK.md`, section 3). `outputs/step_plan.json["budget"]` records the price, the hours that were left and the slot scale, so the paper can state the real training time.
+The outputs are the same as on Lambda (`LAMBDA_RUNBOOK.md`, section 3). `outputs/step_plan.json["budget"]` records the price, the money that was left and each stage's share; `outputs/cost_ledger.json` holds the price source and the machine's billed time. `python -m oa_rlaif.cost status` prints them.

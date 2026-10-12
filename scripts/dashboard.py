@@ -20,8 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(os.environ.get("OA_OUT_DIR", "outputs"))
 OUT = OUT if OUT.is_absolute() else ROOT / OUT
 STAGES_DIR = OUT / "stages"
-RATE = float(os.environ.get("OA_GPU_USD_PER_HOUR") or "27.16")
 PLATFORM = os.environ.get("OA_PLATFORM", "Lambda")
+sys.path.insert(0, str(ROOT / "src"))
+os.environ.setdefault("OA_OUT_DIR", str(OUT))
+from oa_rlaif.cost import Meter  # noqa: E402  (standard library only)
 
 # (name, estimated minutes, what happens). Estimates feed the ETA until real progress is known.
 # OA_DASH_PLAN=smoke shows the Mac smoke-test steps instead (scripts/smoke_mac.sh).
@@ -151,9 +153,16 @@ def frame(now: float | None = None) -> str:
                      f"     log: {last_log_line(name)}")
     remaining = (1 - fraction) * total * 60
     elapsed = now - run_start
+    meter = Meter(OUT / "cost_ledger.json")
+    if meter.price:
+        meter.observe()
+        money = (f"spent ${meter.spent():,.0f} of $450 at ${meter.price:.2f}/h "
+                 f"({(meter.data.get('price') or {}).get('source', '?')})")
+    else:
+        money = "price not set (python -m oa_rlaif.cost price)"
     head = (f"OA-RLAIF on {PLATFORM} · {time.strftime('%H:%M:%S')} · logs in outputs/logs/stage_<step>.log\n\n"
-            f"TOTAL [{bar(fraction, 40)}] {fraction:6.1%}   elapsed {fmt(elapsed)}   ETA ~{fmt(remaining)}"
-            f"   GPU spend so far ≈ ${elapsed / 3600 * RATE:,.0f} (stop at $450)\n")
+            f"TOTAL [{bar(fraction, 40)}] {fraction:6.1%}   elapsed {fmt(elapsed)}   ETA ~{fmt(remaining)}\n"
+            f"MONEY {money}\n")
     return head + ("\n" + step_line + "\n" if step_line else "") + "\n" + "\n".join(lines)
 
 

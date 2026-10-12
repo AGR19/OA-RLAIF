@@ -1,8 +1,9 @@
 """Budget guard: GPU wall-clock and API spend against the $500 cap, with a hard stop at $450.
 
-GPU time is billed only on machines that set OA_BILLABLE=1 (scripts/lambda_setup.sh does this), so data
-preparation on the Mac costs nothing. The ledger is a JSON file under outputs/, so every run, retry and
-stage adds to the same total.
+GPU time is billed only on machines that set OA_BILLABLE=1 (the cost calculator does this), so data
+preparation on the Mac costs nothing. The price and the machine's billed time come from oa_rlaif.cost (the price
+of THIS instance, never a default; the machine's own start time, across restarts). This ledger adds the per-process
+GPU records and API spend; every run, retry and stage adds to the same total.
 """
 
 from __future__ import annotations
@@ -27,14 +28,20 @@ def _float(name: str, default: float) -> float:
 
 @dataclass
 class BudgetGuard:
-    rate_usd_per_hour: float = field(default_factory=lambda: _float("OA_GPU_USD_PER_HOUR", 27.16))
+    rate_usd_per_hour: float | None = None   # None: the recorded price of this machine (oa_rlaif.cost)
     budget_usd: float = field(default_factory=lambda: _float("OA_BUDGET_USD", 500.0))
     stop_usd: float = field(default_factory=lambda: _float("OA_BUDGET_STOP_USD", 450.0))
     billable: bool = field(default_factory=lambda: os.environ.get("OA_BILLABLE") == "1")
     ledger_path: Path = field(default_factory=lambda: out_dir() / "budget_ledger.json")
 
     def __post_init__(self):
+        from .cost import Meter
+
         self.ledger_path = Path(self.ledger_path)
+        self._meter = Meter(self.ledger_path.parent / "cost_ledger.json")
+        if self.rate_usd_per_hour is None:  # only the price recorded for this machine; never a value from .env
+            self.rate_usd_per_hour = self._meter.price or 0.0
+        self.price_known = self.rate_usd_per_hour > 0
         self._ledger = self._read()
         self._run_start = time.time()
         self._run_key = f"run-{int(self._run_start)}-{os.getpid()}"
@@ -55,6 +62,7 @@ class BudgetGuard:
         """Record this run's elapsed GPU time (idempotent; call as often as you like)."""
         if not self.billable:
             return
+        self._meter.observe()
         seconds = time.time() - self._run_start
         self._ledger["gpu_runs"][self._run_key] = {"stage": stage, "seconds": seconds,
                                                    "rate_usd_per_hour": self.rate_usd_per_hour}
@@ -69,24 +77,10 @@ class BudgetGuard:
         self._write()
 
     # ---- reading ---------------------------------------------------------------------------
-    def wallclock_usd(self) -> float:
-        """Cost of the machine since the one-command run first started (outputs/stages/run.start).
-
-        Cloud GPU nodes bill by the hour whether or not a trainer runs: setup, downloads, evaluation and the gaps
-        between stages all count. 0 when no run.start exists (single scripts, the Mac) or OA_WALLCLOCK_BUDGET=0.
-        """
-        start = out_dir() / "stages" / "run.start"
-        if not self.billable or os.environ.get("OA_WALLCLOCK_BUDGET") == "0" or not start.exists():
-            return 0.0
-        try:
-            return max(0.0, time.time() - float(start.read_text().strip())) / 3600 * self.rate_usd_per_hour
-        except ValueError:
-            return 0.0
-
     def gpu_usd(self) -> float:
-        """GPU spend: the larger of the per-process ledger and the machine's wall-clock time since the run started."""
+        """GPU spend: the larger of the per-process records and the machine's billed time (oa_rlaif.cost.Meter)."""
         ledger = sum(r["seconds"] / 3600 * r["rate_usd_per_hour"] for r in self._ledger["gpu_runs"].values())
-        return max(ledger, self.wallclock_usd())
+        return max(ledger, self._meter.spent() if self.billable else 0.0)
 
     def api_usd(self) -> float:
         return sum(v["usd"] for v in self._ledger["api"].values())
@@ -102,6 +96,8 @@ class BudgetGuard:
         return self.spent() + remaining_hours * rate
 
     def check(self, stage: str = "") -> None:
+        if self.billable and not self.price_known:
+            raise BudgetExceeded("no price recorded for this machine: run `python -m oa_rlaif.cost price` first")
         self.tick(stage)
         if self.spent() >= self.stop_usd:
             raise BudgetExceeded(

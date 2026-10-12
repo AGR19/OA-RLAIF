@@ -309,3 +309,13 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - `need_gpus` (in vllm_up, judge_up, train_launch and the GPU scripts) stops with a message if there are fewer than `OA_MIN_GPUS` (4), if the GPUs have under `OA_MIN_GPU_GB` (75), or if an index is out of range.
   - `run_all.sh` checks the count and memory before setup, so nothing is installed or billed past the check.
 - 40 GB GPUs cannot host the A4B judge (about 52 GB bf16): the pipeline needs ≥ 4 GPUs with ≥ 80 GB each.
+
+## 2026-10-11 — Cost calculator in dollars; Docker and requirements installed on every host (user: "the price calculator should not be based on time, build a robust calculator"; "docker will not be in host machine make sure that is installed")
+- **`src/oa_rlaif/cost.py`** (stdlib only; `python -m oa_rlaif.cost price|status`).
+  - **Price of THIS instance, never a default.** Sources, in order of trust: (1) the provider API: Vast `dph_total` via the in-instance `CONTAINER_ID`/`CONTAINER_API_KEY`, or Lambda `price_cents_per_hour` via `LAMBDA_API_KEY`, matched by IP; (2) `OA_GPU_USD_PER_HOUR` given in the shell (captured before `paths.py` loads `.env`, so a stale `.env` value never counts); (3) the price recorded for the same GPUs; (4) asking.
+  - Non-API prices are checked against plausible per-GPU-hour ranges for the nvidia-smi GPU model. 27.16 on 1×A100-40GB is refused unless confirmed.
+  - **Spend:** price × the machine's billed time from its own start (PID 1 start: VM boot or container start). It keeps segments across restarts; off time is not billed.
+  - **Plan in dollars (`PLAN`):** training money = (left − 4.3 h fixed × price) × 0.95, shared OPSD 40%, GRPO 40%, SFT 20%. Steps = share × 0.9 / (price × s/step), capped at full epochs. `stage_dollars` re-checks against the real money left at each stage start. At $27.16 this gives $278 (OPSD $111, GRPO $111, SFT $56), about 10 h, as before.
+  - The time slots (`time_budget_hours`) and `slot_scale` were removed. BudgetGuard takes its rate only from the cost ledger, and a billable `check()` with no price recorded raises.
+- **Hosts:** Lambda now uses the same `cloud_setup.sh` as CoreWeave and Vast: price, apt packages (with `DPkg::Lock::Timeout=600`), Docker Engine installed on the host by `sandbox_setup.sh` (systemd path), then the Python requirements. `run_all.sh` installs python3 first if it is missing. `.env.example` no longer carries a price.
+- Lambda/Vast API field names come from memory; the user declined web searches. Every API failure falls back to asking. Tested with mocked payloads and in an ubuntu:24.04 container: 27.16 refused on a fake A100-40GB; a stale `.env` price is ignored.

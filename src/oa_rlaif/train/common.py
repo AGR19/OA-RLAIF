@@ -35,10 +35,12 @@ def load_config() -> dict:
 
 
 def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epochs: float) -> int:
-    """Optimizer steps for a stage: the configured max_steps, else min(full epochs, steps that fit the time slot).
+    """Optimizer steps for a training stage: the configured max_steps, else min(full epochs, what its money buys).
 
-    The time slot (`time_budget_hours`) uses the seconds per step measured by scripts/35_dry_run.sh on this machine,
-    with a 10% margin for evaluation, checkpointing and merging. The plan is written to outputs/step_plan.json.
+    Money, not time slots (oa_rlaif.cost): the dry run measures the seconds per step on this machine; one step costs
+    price x seconds / 3600. The stage may spend its share of the training money, capped at the start of the stage
+    by the money really left after the stages still to come (stage_dollars). 10% of it is kept for start-up,
+    checkpoints and the merge. The plan is written to outputs/step_plan.json.
     """
     import math
 
@@ -52,57 +54,65 @@ def plan_steps(cfg: dict, stage: str, prompts: int, prompts_per_step: float, epo
     if not measured:
         print(f"[plan] {stage}: no dry-run timing; running the full {full} steps (budget guard still applies)")
         return full
-    hours_slot = s.get("time_budget_hours", 6.0) * slot_scale(cfg)
-    fits = int(hours_slot * 3600 * 0.9 / measured)
-    steps = max(1, min(full, fits))
-    plan = {"stage": stage, "prompts": prompts, "prompts_per_step": prompts_per_step, "epochs": epochs,
-            "full_steps": full, "seconds_per_step": round(measured, 2), "hours_slot": round(hours_slot, 3),
-            "steps": steps, "epochs_covered": round(steps * prompts_per_step / max(1, prompts), 3)}
-    path = out_dir() / "step_plan.json"
-    plans = json.loads(path.read_text()) if path.exists() else {}
-    plans[stage] = plan
-    path.write_text(json.dumps(plans, indent=1))
-    print(f"[plan] {stage}: {steps} of {full} steps ({plan['epochs_covered']} epochs) in ~{steps * measured / 3600:.1f} h")
+    steps, plan = steps_for_money(stage, measured, full)
+    plan.update({"prompts": prompts, "prompts_per_step": prompts_per_step, "epochs": epochs,
+                 "epochs_covered": round(steps * prompts_per_step / max(1, prompts), 3)})
+    write_plan(stage, plan)
+    print(f"[plan] {stage}: {steps} of {full} steps ({plan['epochs_covered']} epochs)"
+          + (f", ~${plan['forecast_usd']:.0f} of ${plan['usd_allowed']:.0f}" if plan.get("usd_allowed") is not None else ""))
     return steps
 
 
-def slot_scale(cfg: dict) -> float:
-    """Share of the training time slots (OPSD + GRPO + SFT) that the rest of the budget pays for; 1.0 = full slots.
+def money_plan() -> dict | None:
+    """The dollar plan (oa_rlaif.cost.make_plan), made once at the end of the dry run; None on unbilled machines."""
+    from ..cost import PLAN, make_plan
 
-    Decided once, at the end of the dry run, from the real hourly price (OA_GPU_USD_PER_HOUR):
-        hours left = (stop - spent) / price;  slot_scale = min(1, (hours left - fixed hours) / sum of slots)
-    The fixed hours are the stages that do not train (evaluations, export, uploads; `budget_plan` in train.yaml).
-    At Lambda's 4xB200 price the full slots fit (1.0). On a pricier node the slots shrink so the run still ends
-    with the GGUF, the evaluations and the SFT row inside the budget. Stored in outputs/step_plan.json["budget"],
-    so every later stage uses the same plan. OA_SLOT_SCALE overrides it.
-    """
-    if os.environ.get("OA_SLOT_SCALE"):
-        return float(os.environ["OA_SLOT_SCALE"])
     path = out_dir() / "step_plan.json"
     plans = json.loads(path.read_text()) if path.exists() else {}
     if "budget" in plans:
-        return float(plans["budget"]["slot_scale"])
+        return plans["budget"]
     guard = BudgetGuard()
     if not guard.billable:
-        return 1.0
-    b = cfg.get("budget_plan", {})
-    slots = sum(cfg[k]["time_budget_hours"] for k in ("sdft", "grpo", "sft"))
-    hours_left = (guard.stop_usd - guard.spent()) / guard.rate_usd_per_hour
-    scale = max(0.0, min(1.0, (hours_left - b.get("fixed_hours", 4.5)) / slots))
-    plans["budget"] = {"usd_per_hour": guard.rate_usd_per_hour, "spent_usd": round(guard.spent(), 2),
-                       "stop_usd": guard.stop_usd, "hours_left": round(hours_left, 2),
-                       "fixed_hours": b.get("fixed_hours", 4.5), "slot_hours_full": slots,
-                       "slot_scale": round(scale, 4), "training_hours": round(scale * slots, 2)}
-    if scale < b.get("min_slot_scale", 0.05):
+        return None
+    if not guard.price_known:
+        raise SystemExit("[plan] no price recorded for this machine: run `python -m oa_rlaif.cost price` first")
+    plan = make_plan(guard.rate_usd_per_hour, guard.spent(), guard.stop_usd)
+    if plan["training_usd"] < PLAN["min_training_usd"]:
         raise SystemExit(
-            f"[plan] budget too small: at ${guard.rate_usd_per_hour:.2f}/h, ${guard.stop_usd - guard.spent():.0f} left buys "
-            f"{hours_left:.1f} h, and the evaluations, export and uploads need {b.get('fixed_hours', 4.5)} h. "
-            f"Training would get {scale * slots * 60:.0f} min. Check OA_GPU_USD_PER_HOUR, use fewer GPUs or a cheaper "
-            f"node, or set OA_SLOT_SCALE to force a scale.")
+            f"[plan] budget too small: at ${guard.rate_usd_per_hour:.2f}/h, ${plan['left_usd']:.0f} is left and the "
+            f"evaluations, export and uploads need ~${plan['fixed_usd']:.0f}, so training would get "
+            f"${plan['training_usd']:.0f}. Use a cheaper machine or check the price (python -m oa_rlaif.cost status).")
+    plans["budget"] = plan
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(plans, indent=1))
-    print(f"[plan] budget: ${guard.rate_usd_per_hour:.2f}/h, {hours_left:.1f} h left -> training slots x{scale:.2f} "
-          f"({scale * slots:.1f} of {slots:.0f} h)")
-    return scale
+    print(f"[plan] budget: ${plan['left_usd']:.0f} left at ${plan['usd_per_hour']:.2f}/h; training gets "
+          f"${plan['training_usd']:.0f} " + str({k: f"${v:.0f}" for k, v in plan["allocated_usd"].items()}))
+    return plan
+
+
+def steps_for_money(stage: str, seconds_per_step: float, full: int, cap: int | None = None) -> tuple[int, dict]:
+    """Steps this stage can pay for now (at most `full`, and at most `cap`), with the numbers behind them."""
+    from ..cost import stage_dollars
+
+    plan = money_plan()
+    limit = full if cap is None else min(full, cap)
+    if plan is None:  # unbilled machine (the Mac): no money limit
+        return limit, {"stage": stage, "full_steps": full, "steps": limit, "seconds_per_step": round(seconds_per_step, 2)}
+    guard = BudgetGuard()
+    allowed = stage_dollars(plan, stage, guard.rate_usd_per_hour, guard.spent(), guard.stop_usd)
+    usd_per_step = guard.rate_usd_per_hour * seconds_per_step / 3600
+    steps = max(1, min(limit, int(allowed * 0.9 / max(usd_per_step, 1e-9))))
+    return steps, {"stage": stage, "full_steps": full, "steps": steps, "seconds_per_step": round(seconds_per_step, 2),
+                   "usd_per_step": round(usd_per_step, 4), "usd_allowed": round(allowed, 2),
+                   "forecast_usd": round(steps * usd_per_step, 2), "usd_per_hour": guard.rate_usd_per_hour}
+
+
+def write_plan(stage: str, plan: dict) -> None:
+    path = out_dir() / "step_plan.json"
+    plans = json.loads(path.read_text()) if path.exists() else {}
+    plans[stage] = plan
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(plans, indent=1))
 
 
 def record_dry_run(**values) -> None:

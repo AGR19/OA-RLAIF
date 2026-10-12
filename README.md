@@ -30,7 +30,7 @@
    ```
 2. **Lambda, CoreWeave or Vast.ai.** One command runs everything: `scripts/lambda_all.sh`, `scripts/coreweave_all.sh` or `scripts/vast_all.sh` (see the runbooks). The steps below are what it runs. Setup is the only step with downloads. Everything else runs locally. The A4B judge is served on the instance; the only remote model call is A4B question generation on the Mac.
    ```bash
-   scripts/lambda_setup.sh
+   scripts/cloud_setup.sh lambda      # price, system packages, Docker, Python requirements, weights
    scripts/00_check_env.sh
    scripts/35_dry_run.sh
    scripts/30_baseline.sh

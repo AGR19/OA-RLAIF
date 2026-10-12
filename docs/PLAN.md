@@ -235,7 +235,7 @@ The user wants a new self-contained `RLAIF/` folder that:
 
 **Budget guard ($500).**
 - All data prep, DRAL fitting, A4B question generation and verification run on the Mac **before** renting.
-- `budget.py` multiplies wall-clock time by the configured $/hr (default $27.16 for 4×B200) plus logged API spend. It checkpoints and stops at **$450**.
+- `cost.py` finds the price of THIS instance (provider API, else asked and checked against the GPUs; never a default) and meters the machine's billed time from its own start; `budget.py` adds logged API spend. It checkpoints and stops at **$450**. The training steps are planned in dollars (OPSD 40%, GRPO 40%, SFT 20% of the money left after the fixed stages).
 - A 30-minute dry run measures throughput, and the steps for each stage are set from it.
 - Estimate: setup, checks and dry run 1.5 h, baseline 0.75 h, OPSD ≤ 4 h, GRPO ≤ 4 h, compulsory SFT comparison ≤ 2 h, evaluations and full mapping 2.7 h, export, uploads and tables 0.9 h ≈ 15 h ≈ $411. The judge is local (no API cost on Lambda).
 
