@@ -31,6 +31,18 @@ DECISION_SYSTEM = (
     "--confidence <0..1>\n```"
 )
 
+# The agent's system prompt and task text: the SAME strings in the training rows (data/render.py, decision_agent)
+# and in the agent evaluation (eval/agent_eval.py), so the agent is evaluated on the prompt it was trained on.
+AGENT_SYSTEM = DECISION_SYSTEM + (
+    "\nTools available in the shell: `om profile` prints both ontologies' modelling profiles; `om show <IRI>` prints the source entity card; `om candidates <IRI> --k 20` "
+    "lists numbered candidates; `om submit` records your decision. Run one command per turn.")
+
+
+def agent_task(episode: dict) -> str:
+    relation = "classified under" if episode.get("relation") == "classified_under" else "equivalent to"
+    return f"Align the source entity {episode['source_iri']} ({episode['pair_id']}). Find the target it is {relation}."
+
+
 KNOWLEDGE_SYSTEM = (
     "You are OA-RLAIF, an expert in ontologies and ontology matching. Answer from your own knowledge, "
     "concisely and precisely. Do not invent identifiers you are unsure of."
@@ -95,10 +107,22 @@ def evidence_thought(episode: dict) -> str:
     return " ".join(parts) + "."
 
 
+MAX_TARGETS = 3  # `om submit` accepts at most 3 targets (om_cli.py); every scorer uses the same limit
+
+
+def fully_correct(choices, gold) -> bool:
+    """Right answer under the 3-target limit: NONE when there is no gold; otherwise only gold targets, and all of them,
+    or MAX_TARGETS of them when the gold has more (the episode's gold is always among its candidates)."""
+    choices, gold = set(choices), set(gold or [])
+    if choices == {"NONE"}:
+        return not gold
+    return bool(gold) and choices <= gold and len(choices) == min(len(gold), MAX_TARGETS)
+
+
 def gold_answer(episode: dict, thought: str = "") -> str:
     """Reference completion (used as the teacher's privileged demonstration, never shown to the student)."""
     index = {c["iri"]: i for i, c in enumerate(episode["candidates"], 1)}
-    present = sorted(index[g] for g in episode.get("gold", []) if g in index)[:3]
+    present = sorted(index[g] for g in episode.get("gold", []) if g in index)[:MAX_TARGETS]
     choice = ",".join(f"C{i}" for i in present) or "NONE"
     relation = episode.get("relation", "=")
     relation = "classified_under" if relation == "classified_under" else ("=" if relation not in ("<", ">") else relation)

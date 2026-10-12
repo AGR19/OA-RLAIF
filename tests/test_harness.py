@@ -38,6 +38,10 @@ def test_agent_loop_submits_through_om(tmp_path):
     assert results[0]["target"] == "http://t#7" and results[0]["correct"]
     trajectory = json.loads((tmp_path / "h1" / "trajectory.json").read_text())
     assert any("gray matter of spinal cord" in str(m.get("content", "")) for m in trajectory)
+    # the agent sees exactly the prompt and task text of the decision_agent training rows
+    from oa_rlaif.harness.prompts import AGENT_SYSTEM, agent_task
+    assert trajectory[0]["role"] == "system" and trajectory[0]["content"] == AGENT_SYSTEM
+    assert trajectory[1]["role"] == "user" and trajectory[1]["content"].strip() == agent_task(episode())
 
 
 def test_parse_submission():

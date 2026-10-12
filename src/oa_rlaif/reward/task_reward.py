@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..harness.prompts import parse_decision
+from ..harness.prompts import MAX_TARGETS, parse_decision
 
 
 @dataclass
@@ -25,7 +25,8 @@ class TaskRewardConfig:
 
 
 def correct(choices, episode: dict) -> float:
-    """F1 between the submitted targets and the gold targets present among the candidates."""
+    """F1 between the submitted targets and the gold (always among the candidates). Recall counts at most MAX_TARGETS
+    gold targets, the most one submission may name, so the best allowed answer scores 1 even when the gold has more."""
     choices = (choices,) if isinstance(choices, str) else tuple(choices)
     gold = set(episode.get("gold") or [])
     if choices == ("NONE",):
@@ -33,7 +34,7 @@ def correct(choices, episode: dict) -> float:
     hits = len(gold & set(choices))
     if not hits:
         return 0.0
-    precision, recall = hits / len(choices), hits / len(gold)
+    precision, recall = hits / len(choices), hits / min(len(gold), MAX_TARGETS)
     return 2 * precision * recall / (precision + recall)
 
 

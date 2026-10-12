@@ -131,7 +131,9 @@ def out_path(relative: str) -> Path:
 def runtime_kwargs(cfg: dict, generation: bool = True) -> dict:
     """GPU box: bf16, gradient checkpointing and the vLLM rollout server. Smoke test: plain CPU settings."""
     if cfg.get("smoke"):
-        return {"bf16": False, "gradient_checkpointing": False, **({"use_vllm": False} if generation else {})}
+        # OA_SMOKE_GC=1: gradient checkpointing on, as on the GPU box (checks LoRA gradients flow through it)
+        gc = os.environ.get("OA_SMOKE_GC") == "1"
+        return {"bf16": False, "gradient_checkpointing": gc, **({"use_vllm": False} if generation else {})}
     v = cfg["vllm"]
     vllm = {"use_vllm": True, "vllm_mode": "server", "vllm_server_host": v["server_host"], "vllm_server_port": v["server_port"]}
     return {"bf16": True, "gradient_checkpointing": True, **(vllm if generation else {})}

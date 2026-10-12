@@ -53,3 +53,19 @@ def test_select_equivalences_keeps_multi_target_sources_but_not_shared_targets()
     picks = [Alignment("s1", "t1", "=", 0.9), Alignment("s1", "t2", "=", 0.8), Alignment("s2", "t1", "=", 0.7)]
     kept = {(a.source_iri, a.target_iri) for a in select_equivalences(picks)}
     assert kept == {("s1", "t1"), ("s1", "t2")}
+
+
+def test_more_than_three_gold_targets():
+    """om submit names at most 3 targets: 3 correct picks out of 6 gold is a fully correct answer everywhere."""
+    from oa_rlaif.harness.prompts import fully_correct
+
+    ep = {**EP, "candidates": [{"iri": f"t{i}", "card": f"IRI: t{i}"} for i in range(1, 9)],
+          "gold": [f"t{i}" for i in range(1, 7)]}
+    assert correct(("t1", "t2", "t3"), ep) == 1.0                      # was 0.667 (recall over all 6)
+    assert round(correct(("t1", "t2"), ep), 3) == 0.8                   # 2 of the 3 allowed
+    assert round(correct(("t1", "t2", "t7"), ep), 3) == 0.667           # a wrong pick costs precision
+    assert fully_correct(("t4", "t5", "t6"), ep["gold"]) and not fully_correct(("t1", "t2"), ep["gold"])
+    assert not fully_correct(("t1", "t2", "t7"), ep["gold"])
+    assert fully_correct(("NONE",), []) and not fully_correct(("NONE",), ["t1"])
+    assert fully_correct(("t1", "t3"), ["t1", "t3"]) and not fully_correct(("t1",), ["t1", "t3"])
+    assert task_reward(gold_answer(ep), ep)["gold"] == 1.0              # the worked answer gets the full gold term

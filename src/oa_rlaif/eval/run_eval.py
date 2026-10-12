@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from ..harness.prompts import KNOWLEDGE_SYSTEM, decision_messages, parse_decision
+from ..harness.prompts import KNOWLEDGE_SYSTEM, decision_messages, fully_correct, parse_decision
 from ..io import read_jsonl
 from ..ontology.alignment_io import read_alignment
 from ..paths import data_dir, out_dir, raw_dir
@@ -94,7 +94,7 @@ def decision_metrics(episodes: list[dict], replies: list[str], trivial: set | No
         else:
             for choice in d.choices or (d.choice,):
                 predicted.add((ep["source_iri"], choice))
-            correct += set(d.choices or (d.choice,)) == set(ep.get("gold") or [])  # exact set match
+            correct += fully_correct(d.choices or (d.choice,), ep.get("gold"))  # exact, under the 3-target limit
     scores = AlignmentEvaluator().evaluate(predicted, reference, trivial=trivial)
     n = max(1, len(episodes))
     return {"episodes": len(episodes), "accuracy": correct / n, "invalid_rate": invalid / n, "none_rate": none / n,

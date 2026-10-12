@@ -25,7 +25,8 @@ from ..budget import BudgetGuard
 from ..harness.prompts import decision_user
 from ..paths import ROOT, out_dir
 
-SCORE = re.compile(r"SCORE\s*[:=]\s*(10|[0-9](?:\.[0-9]+)?)")
+# 'SCORE: 7', 'Score: 7.5', '**SCORE:** 8', 'score = 9/10'; a ':' or '=' is required ('a score of 3' does not count)
+SCORE = re.compile(r"SCORE[\s*_]{0,3}[:=][\s*_]{0,3}(10(?:\.0+)?|[0-9](?:\.[0-9]+)?)", re.IGNORECASE)
 
 
 def rubric() -> str:
@@ -50,12 +51,13 @@ class Judge:
         self.cache_path = cache_path or out_dir() / "judge_cache.sqlite"
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        with sqlite3.connect(self.cache_path) as db:
+        with sqlite3.connect(self.cache_path, timeout=30) as db:
             db.execute("create table if not exists judge (key text primary key, score real, raw text)")
         self.guard = guard or BudgetGuard()
         self.price_in = float(os.environ.get("JUDGE_USD_PER_MTOK_IN", "0") or 0)
         self.price_out = float(os.environ.get("JUDGE_USD_PER_MTOK_OUT", "0") or 0)
         self.fallbacks = 0
+        self.cache_errors = 0
         self._rubric = rubric()
 
     def selected(self, episode: dict) -> bool:
@@ -67,14 +69,23 @@ class Judge:
     def _key(self, episode: dict, completion: str) -> str:
         return hashlib.sha256(f"{self.model}|{episode['id']}|{completion}".encode()).hexdigest()
 
+    # The cache is shared by the training processes (one per GPU): wait for SQLite's lock, and never let a cache
+    # problem stop training (a miss only means one more judge call).
     def _cached(self, key: str):
-        with self._lock, sqlite3.connect(self.cache_path) as db:
-            row = db.execute("select score from judge where key = ?", (key,)).fetchone()
+        try:
+            with self._lock, sqlite3.connect(self.cache_path, timeout=30) as db:
+                row = db.execute("select score from judge where key = ?", (key,)).fetchone()
+        except sqlite3.Error:
+            self.cache_errors += 1
+            return None
         return row[0] if row else None
 
     def _store(self, key: str, score: float, raw: str) -> None:
-        with self._lock, sqlite3.connect(self.cache_path) as db:
-            db.execute("insert or replace into judge values (?, ?, ?)", (key, score, raw))
+        try:
+            with self._lock, sqlite3.connect(self.cache_path, timeout=30) as db:
+                db.execute("insert or replace into judge values (?, ?, ?)", (key, score, raw))
+        except sqlite3.Error:
+            self.cache_errors += 1
 
     async def score(self, episode: dict, completion: str, limiter: RateLimiter | None = None) -> float:
         if not self.selected(episode):

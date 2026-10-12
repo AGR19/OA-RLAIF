@@ -19,6 +19,7 @@ import random
 import sys
 from pathlib import Path
 
+from ..harness.prompts import AGENT_SYSTEM, agent_task, fully_correct
 from ..harness.sandbox import SANDBOX_USER, describe, public_episode
 from ..io import read_jsonl, read_yaml
 from ..paths import ROOT, out_dir
@@ -26,9 +27,8 @@ from ..progress import stage
 
 
 def instance_text(episode: dict) -> str:
-    relation = "classified under" if episode.get("relation") == "classified_under" else "equivalent to"
-    return (f"Align source entity {episode['source_iri']} ({episode['pair_id']}). Find the candidate target it is "
-            f"{relation}, or NONE. Use `om show` and `om candidates`, then submit.")
+    """The task message the agent was trained on (harness.prompts.agent_task)."""
+    return agent_task(episode)
 
 
 def make_environment(kind: str, task_dir: Path, cfg: dict):
@@ -66,7 +66,8 @@ def parse_submission(submission: str) -> dict | None:
 def run(episodes: list[dict], model, env_kind: str, workdir: Path, cfg: dict) -> list[dict]:
     from minisweagent.agents.default import DefaultAgent
 
-    agent_cfg = {k: v for k, v in cfg["agent"].items()}
+    # the system prompt the model was trained on (decision_agent rows), not a separate copy in the YAML
+    agent_cfg = {**cfg["agent"], "system_template": AGENT_SYSTEM}
     results = []
     with stage("agent_eval", total=len(episodes)) as bar:
         for episode in episodes:
@@ -94,8 +95,7 @@ def run(episodes: list[dict], model, env_kind: str, workdir: Path, cfg: dict) ->
             decision = parse_submission(outcome.get("submission", ""))
             target = decision["target"] if decision else None
             targets = set(decision["targets"]) if decision else set()
-            gold = set(episode.get("gold") or [])
-            correct = target is not None and ((target == "NONE" and not gold) or (bool(gold) and targets == gold))
+            correct = target is not None and fully_correct(targets or {target}, episode.get("gold"))
             results.append({"id": episode["id"], "pair_id": episode["pair_id"], "exit": outcome.get("exit_status"),
                             "target": target, "correct": bool(correct), "steps": len(agent.messages)})
             (run_dir / "trajectory.json").write_text(json.dumps(agent.messages, default=str)[:2_000_000])

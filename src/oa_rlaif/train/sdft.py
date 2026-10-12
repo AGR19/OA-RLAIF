@@ -71,10 +71,15 @@ def run_sft(cfg: dict, train, max_steps: int, guard: BudgetGuard, dry_run: bool 
     data = train.map(to_messages, remove_columns=train.column_names)
     model, tokenizer = load_model(cfg)
     s = cfg["sdft"]
+    # Same optimisation as OPSD (fair comparison): learning rate, cosine schedule, warm-up, batch. The sequence limit is
+    # OPSD's prompt + completion limits; TRL's default (1,024 tokens, cut at the end) would drop the answer of most
+    # decision rows (their prompts are 1,700-2,800 tokens). keep_end: if a row is ever longer, the prompt start goes.
     args = SFTConfig(output_dir=str(out_path("outputs/checkpoints/sft")), num_train_epochs=s["epochs"], max_steps=max_steps,
-                     learning_rate=s["learning_rate"], per_device_train_batch_size=s["per_device_batch"],
-                     gradient_accumulation_steps=s["grad_accum"], **runtime_kwargs(cfg, generation=False),
-                     completion_only_loss=True, logging_steps=s["logging_steps"], save_steps=s["save_steps"],
+                     learning_rate=s["learning_rate"], warmup_steps=s["warmup_ratio"], lr_scheduler_type=s["lr_scheduler"],
+                     per_device_train_batch_size=s["per_device_batch"], gradient_accumulation_steps=s["grad_accum"],
+                     max_length=s["max_prompt_length"] + s["max_completion_length"], truncation_mode="keep_end",
+                     **runtime_kwargs(cfg, generation=False), completion_only_loss=True,
+                     logging_steps=s["logging_steps"], save_steps=s["save_steps"], save_total_limit=3,
                      report_to=["tensorboard"])
     trainer = SFTTrainer(model=model, args=args, train_dataset=data, processing_class=tokenizer,
                          peft_config=lora_config(cfg), callbacks=progress_callback("sft", guard))

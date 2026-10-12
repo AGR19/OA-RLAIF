@@ -80,6 +80,14 @@ def main() -> int:
         print(json.dumps({"judge_model": judge.model, "judge_fraction": judge.fraction, "expected_judge_calls": calls,
                           "judge_rpm_per_process": judge.rpm}))
     reward_funcs, weights = make_reward_functions(scorer=scorer, judge=judge)
+    gradient_check = cfg.get("smoke") and os.environ.get("OA_SMOKE_REWARD") == "length"
+    if gradient_check:
+        # rehearsal only: a random model writes only invalid, truncated replies, so every group has one reward and
+        # GRPO has nothing to learn from. A length reward differs within each group, so the gradient path through
+        # the LoRA weights (gradient checkpointing included) is exercised.
+        def length_reward(prompts, completions, **kwargs):
+            return [len(str(c)) / 100 for c in completions]
+        reward_funcs, weights = [length_reward], [1.0]
     world = max(1, int(os.environ.get("WORLD_SIZE", "1")))
     prompts_per_step = g["per_device_batch"] * g["grad_accum"] * world / g["num_generations"]
     max_steps = args.max_steps if args.max_steps is not None else plan_steps(cfg, "grpo", len(train), prompts_per_step, 1)
@@ -91,7 +99,7 @@ def main() -> int:
         save_total_limit=3, report_to=["tensorboard"], num_generations=g["num_generations"],
         temperature=g["temperature"], top_p=g["top_p"], max_completion_length=g["max_completion_length"],
         loss_type=g["loss_type"], beta=g["beta"], scale_rewards="none" if not g["scale_rewards"] else "group",
-        mask_truncated_completions=g["mask_truncated_completions"], reward_weights=weights,
+        mask_truncated_completions=g["mask_truncated_completions"] and not gradient_check, reward_weights=weights,
         chat_template_kwargs=cfg["model"]["chat_template_kwargs"], log_completions=True, num_completions_to_print=2,
         **runtime_kwargs(cfg))
     model, tokenizer = load_model(cfg, args.init or str(out_path(g["init_from"])))

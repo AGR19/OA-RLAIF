@@ -19,15 +19,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from ..io import read_jsonl, read_yaml
-from ..harness.prompts import (DECISION_SYSTEM, KNOWLEDGE_SYSTEM, decision_messages, decision_user,
+from ..harness.prompts import (AGENT_SYSTEM, KNOWLEDGE_SYSTEM, agent_task, decision_messages, decision_user,
                                privileged_context)
 from ..paths import config_dir, data_dir, out_dir
 from ..progress import stage
-
-AGENT_SYSTEM = DECISION_SYSTEM + (
-    "\nTools available in the shell: `om profile` prints both ontologies' modelling profiles; `om show <IRI>` prints the source entity card; `om candidates <IRI> --k 20` "
-    "lists numbered candidates; `om submit` records your decision. Run one command per turn.")
-
 
 WHO_ICD10_PROFILE = ("WHO ICD-10 (from the WHO 10<->11 mapping tables): statistical classification of chapters, blocks and "
                      "3-4 character categories; categories are mutually exclusive and residual codes (.8 other, .9 "
@@ -65,8 +60,7 @@ def agent_trajectory(episode: dict) -> list[dict]:
     candidates = decision_user(episode).split("CANDIDATES", 1)[1].strip()
     return [
         {"role": "system", "content": AGENT_SYSTEM},
-        {"role": "user", "content": f"Align the source entity {src} ({episode['pair_id']}). Find the target it is "
-                                    f"{'classified under' if episode.get('relation') == 'classified_under' else 'equivalent to'}."},
+        {"role": "user", "content": agent_task(episode)},
         {"role": "assistant", "content": "THOUGHT: check the modelling assumptions of both ontologies first.\n```mswea_bash_command\nom profile\n```"},
         {"role": "user", "content": "<returncode>0</returncode>\n<output>\nSource ontology: " + (episode.get("source_profile") or "unknown")
                                     + "\nTarget ontology: " + (episode.get("target_profile") or "unknown") + "\n</output>"},

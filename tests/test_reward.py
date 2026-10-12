@@ -103,3 +103,17 @@ def test_combined_weights_and_invalid_gate(scorer):
     judge = judge_fn(None, [reply("C1"), "garbage"], eps)
     assert task[1] == 0.0 and judge[1] == 0.0 and task[0] > 0.5 and judge[0] == 0.5
     assert math.isclose(0.8 * task[1] + 0.2 * judge[1], 0.0)
+
+
+def test_judge_score_parsing_tolerates_formatting():
+    from oa_rlaif.reward.judge import SCORE
+
+    def parse(text):
+        found = SCORE.findall(text)
+        return float(found[-1]) if found else None
+
+    assert parse("Good evidence.\nSCORE: 7") == 7.0
+    assert parse("**SCORE:** 8") == 8.0 and parse("**Score:** 8") == 8.0 and parse("score = 9/10") == 9.0
+    assert parse("SCORE: 7.5") == 7.5 and parse("SCORE: 10") == 10.0 and parse("SCORE: 0") == 0.0
+    assert parse("SCORE: 3 then corrected.\nSCORE: 6") == 6.0          # the last score counts
+    assert parse("It earns a score of 3 on criterion 1.") is None      # no ':' or '=': not a final score

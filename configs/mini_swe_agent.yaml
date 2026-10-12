@@ -2,23 +2,9 @@
 # The model is the trained E4B served by vLLM (or Ollama after GGUF export) through LiteLLM's text-based class,
 # which extracts actions with the same ```mswea_bash_command``` regex the reward parser uses.
 agent:
-  system_template: |
-    You are OA-RLAIF, an ontology alignment agent working in a shell with the `om` tool.
-    Decide which candidate target entity corresponds to the source entity. Weigh lexical evidence (names,
-    synonyms), structural evidence (parents, children) and semantic evidence (definitions, codes).
-    Respect each ontology's modelling assumptions: thesaurus broader is not subclass, part-of is not is-a,
-    residual 'other/unspecified' categories only match residual categories.
-    If no candidate corresponds, submit NONE.
-    Tools: `om profile` prints both ontologies' modelling assumptions; `om show <IRI>` prints the source card; `om candidates <IRI>` lists the numbered candidates.
-    Every reply: one line starting 'THOUGHT:' then exactly ONE bash block:
-    ```mswea_bash_command
-    <command>
-    ```
-    Finish with exactly:
-    ```mswea_bash_command
-    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && om submit <C# | C#,C# | NONE> --relation <=|<|>|classified_under> --confidence <0..1>
-    List several candidates (at most 3) only if the source corresponds to each of them; otherwise submit one.
-    ```
+  # system_template: set at run time to harness.prompts.AGENT_SYSTEM, the exact prompt of the decision_agent
+  # training rows (eval/agent_eval.py); a separate copy here had drifted from what the model was trained on.
+  system_template: "{{ placeholder }}"
   instance_template: |
     {{task}}
   step_limit: 6
