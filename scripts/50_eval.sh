@@ -6,6 +6,7 @@
 #      base-model agent run in 30_baseline.sh
 . "$(dirname "$0")/_common.sh"
 need_gpus
+own_servers
 TAG="$1"; shift || true
 budget_gate "eval_$TAG"
 $PY -m oa_rlaif.eval.run_eval --model "outputs/merged/$TAG" --tag "$TAG" --tp "$EVAL_TP" 2>&1 | tee "outputs/logs/eval_$TAG.log"
@@ -15,10 +16,6 @@ if [ "${1:-}" = "--full" ]; then
      --source "$RAW/anatomy-dataset-2/mouse.owl" --target "$RAW/anatomy-dataset-2/human.owl" \
      --reference "$RAW/anatomy-dataset-2/reference.rdf"
 fi
-CUDA_VISIBLE_DEVICES="$VLLM_GPU" nohup .venv/bin/vllm serve "outputs/merged/$TAG" --port 8000 --served-model-name oa-rlaif-e4b \
-  --max-model-len 8192 > "outputs/logs/vllm_agent_$TAG.log" 2>&1 &
-echo $! > outputs/vllm_server.pid; trap vllm_down EXIT
-for _ in $(seq 1 120); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 5; done
-curl -sf http://127.0.0.1:8000/health >/dev/null || { log "vLLM did not start for the agent run; see outputs/logs/vllm_agent_$TAG.log"; exit 1; }
+agent_server_up "outputs/merged/$TAG" "outputs/logs/vllm_agent_$TAG.log"
 $PY -m oa_rlaif.eval.agent_eval --episodes data/eval/heldout_anatomy.jsonl --n 200 --tag "$TAG" --env "${OA_AGENT_ENV:-docker}" \
   2>&1 | tee "outputs/logs/agent_eval_$TAG.log"

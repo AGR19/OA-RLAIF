@@ -8,6 +8,7 @@
 # steps = min(full epochs, what each stage's share of the money buys) - oa_rlaif.cost.
 . "$(dirname "$0")/_common.sh"
 need_gpus
+own_servers   # clears servers left by a crashed earlier run; stops ours on every exit
 budget_gate dry_run
 MODEL="$($PY -c "from oa_rlaif.train.common import load_config; print(load_config()['model']['id'])")"
 rm -f outputs/dry_run.json outputs/step_plan.json
@@ -20,7 +21,7 @@ vllm_down
 train_launch -m oa_rlaif.train.sdft --mode sft --dry-run \
   --max-steps 5 2>&1 | tee outputs/logs/dry_run_sft.log
 
-VLLM_GPU_UTIL=0.40 vllm_up "$MODEL"; trap 'judge_down; vllm_down' EXIT
+VLLM_GPU_UTIL=0.40 vllm_up "$MODEL"
 judge_up
 # gold replies through the GRPO rewards: proves the local judge answers and parses before GPU hours are spent
 $PY -m oa_rlaif.dev.reward_check --n 8 2>&1 | tee outputs/logs/dry_run_reward_check.log

@@ -54,31 +54,87 @@ need_gpus() {
 # OA_PLAN_TIME: one planning instant for every GPU process, so they all plan the same step count
 train_launch() { need_gpus; OA_PLAN_TIME="$(date +%s)" CUDA_VISIBLE_DEVICES="$TRAIN_GPUS" .venv/bin/accelerate launch --num_processes "$NTRAIN" "$@"; }
 budget_gate() { $PY -c "from oa_rlaif.budget import BudgetGuard; g=BudgetGuard(); g.check('$1'); print('budget ok:', g.summary())"; }
+# ---- vLLM servers ------------------------------------------------------------------------------------------------
+# One helper starts every server (rollouts, judge, agent runs). A server runs in its own session (setsid), so stopping
+# it stops its engine processes too. GPU scripts call own_servers first: it clears servers left by a crashed earlier
+# run (any code version) and stops this script's servers on every exit. A server counts as up only if the process
+# just started is alive AND the port serves the expected model: a leftover server on the same port is never reused.
+kill_tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$c"; done; kill -TERM "$1" 2>/dev/null || true; }
+stop_server() {  # $1 = vllm_server | judge_server
+  local f="outputs/$1.pid" pid
+  [ -f "$f" ] || return 0
+  pid="$(cat "$f")"
+  kill -TERM -- "-$pid" 2>/dev/null || kill_tree "$pid"
+  for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+  kill -KILL -- "-$pid" 2>/dev/null || true
+  rm -f "$f"
+}
+stop_all_servers() { stop_server judge_server; stop_server vllm_server; }
+stop_leftovers() {  # vLLM servers, engines and trainers started from this folder by an earlier run that crashed
+  local p cmd n=0
+  for p in $(pgrep -f -i "vllm|oa_rlaif\.(train|eval)|accelerate" 2>/dev/null); do
+    [ "$p" = "$$" ] && continue
+    [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "$PWD" ] || continue
+    cmd="$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | cut -c1-90)"
+    log "stopping a leftover process from an earlier run: $p $cmd"; kill_tree "$p"; n=$((n + 1))
+  done
+  if [ "$n" -gt 0 ]; then sleep 10; for p in $(pgrep -f -i "vllm|oa_rlaif\.(train|eval)|accelerate" 2>/dev/null); do
+    [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "$PWD" ] && kill -KILL "$p" 2>/dev/null; done; fi
+  return 0
+}
+own_servers() { stop_all_servers; stop_leftovers; trap stop_all_servers EXIT; }
+gpu_mem_gb() { nvidia-smi --query-gpu="memory.$2" --format=csv,noheader,nounits -i "$1" 2>/dev/null | awk '{ print int($1 / 1024) }'; }
+wait_for_memory() {  # $1 = GPU, $2 = share of its memory the server will take
+  local need; need="$(awk -v t="$(gpu_mem_gb "$1" total)" -v u="$2" 'BEGIN { print int(t * u) }')"
+  for _ in $(seq 1 60); do [ "$(gpu_mem_gb "$1" free)" -ge "$need" ] && return 0; sleep 2; done
+  log "GPU $1 has $(gpu_mem_gb "$1" free) GB free; this server needs $need GB. What holds it:"; nvidia-smi || true
+  return 1
+}
+serve() {  # serve NAME GPU SHARE PORT MODEL_ID LOG -- command...
+  local name="$1" gpu="$2" share="$3" port="$4" expect="$5" logf="$6"; shift 7
+  if curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+    log "port $port already answers: stopping that server first"; stop_server "$name"; stop_leftovers
+    curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1 && {
+      log "another program serves port $port (not started from this folder); stop it and run again"; return 1; }
+  fi
+  wait_for_memory "$gpu" "$share" || return 1
+  CUDA_VISIBLE_DEVICES="$gpu" setsid nohup "$@" > "$logf" 2>&1 &
+  local pid=$!
+  echo "$pid" > "outputs/$name.pid"
+  for _ in $(seq 1 180); do
+    kill -0 "$pid" 2>/dev/null || { log "$name stopped during start-up; end of $logf:"; tail -n 20 "$logf"; return 1; }
+    if curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+      curl -sf "http://127.0.0.1:$port/v1/models" 2>/dev/null | grep -qF "\"$expect\"" && { log "$name up on GPU $gpu ($expect)"; return 0; }
+      log "port $port answers but does not serve $expect"; return 1
+    fi
+    sleep 5
+  done
+  log "$name did not start within 15 minutes; see $logf"; return 1
+}
 vllm_up() {  # $1 = model path or id; serves on $VLLM_GPU for TRL rollouts
   need_gpus
-  local model="$1"
-  CUDA_VISIBLE_DEVICES="$VLLM_GPU" nohup .venv/bin/trl vllm-serve --model "$model" --port "${VLLM_PORT:-8000}" \
-      --gpu-memory-utilization "${VLLM_GPU_UTIL:-0.85}" --max-model-len 8192 > outputs/logs/vllm_server.log 2>&1 &
-  echo $! > outputs/vllm_server.pid
-  for _ in $(seq 1 120); do curl -sf "http://127.0.0.1:${VLLM_PORT:-8000}/health/" >/dev/null && { log "vLLM up ($model)"; return 0; }; sleep 5; done
-  log "vLLM did not start; see outputs/logs/vllm_server.log"; return 1
+  serve vllm_server "$VLLM_GPU" "${VLLM_GPU_UTIL:-0.85}" "${VLLM_PORT:-8000}" "$1" outputs/logs/vllm_server.log -- \
+    .venv/bin/trl vllm-serve --model "$1" --port "${VLLM_PORT:-8000}" \
+    --gpu-memory-utilization "${VLLM_GPU_UTIL:-0.85}" --max-model-len 8192
 }
-vllm_down() { [ -f outputs/vllm_server.pid ] && kill "$(cat outputs/vllm_server.pid)" 2>/dev/null || true; rm -f outputs/vllm_server.pid; }
+vllm_down() { stop_server vllm_server; }
+agent_server_up() {  # $1 = model, $2 = log: the model behind the mini-SWE-agent runs, as oa-rlaif-e4b
+  need_gpus
+  serve vllm_server "$VLLM_GPU" 0.85 8000 oa-rlaif-e4b "$2" -- .venv/bin/vllm serve "$1" --port 8000 \
+    --served-model-name oa-rlaif-e4b --gpu-memory-utilization 0.85 --max-model-len 8192
+}
 # A4B judge served locally for GRPO (decided 2026-10-10: API quotas and API latency would idle the GPUs).
 # On B200 it shares $VLLM_GPU with the policy server: start the policy first (VLLM_GPU_UTIL=0.40), then this
 # (0.45 of 180 GB). On smaller GPUs it gets its own GPU ($JUDGE_GPU, 0.85).
 JUDGE_LOCAL_MODEL="${JUDGE_LOCAL_MODEL:-google/gemma-4-26B-A4B-it}"
 judge_up() {
   need_gpus
-  CUDA_VISIBLE_DEVICES="$JUDGE_GPU" nohup .venv/bin/vllm serve "$JUDGE_LOCAL_MODEL" --port "${JUDGE_PORT:-8001}" \
-      --served-model-name a4b-judge --gpu-memory-utilization "$JUDGE_GPU_UTIL" --max-model-len 8192 \
-      > outputs/logs/judge_server.log 2>&1 &
-  echo $! > outputs/judge_server.pid
-  for _ in $(seq 1 180); do curl -sf "http://127.0.0.1:${JUDGE_PORT:-8001}/health" >/dev/null && break; sleep 5; done
-  curl -sf "http://127.0.0.1:${JUDGE_PORT:-8001}/health" >/dev/null || { log "judge did not start; see outputs/logs/judge_server.log"; return 1; }
+  serve judge_server "$JUDGE_GPU" "$JUDGE_GPU_UTIL" "${JUDGE_PORT:-8001}" a4b-judge outputs/logs/judge_server.log -- \
+    .venv/bin/vllm serve "$JUDGE_LOCAL_MODEL" --port "${JUDGE_PORT:-8001}" --served-model-name a4b-judge \
+    --gpu-memory-utilization "$JUDGE_GPU_UTIL" --max-model-len 8192 || return 1
   export JUDGE_API_BASE="http://127.0.0.1:${JUDGE_PORT:-8001}/v1" JUDGE_API_KEY=local JUDGE_MODEL=a4b-judge \
          JUDGE_RPM=0 JUDGE_MAX_TOKENS=512 JUDGE_USD_PER_MTOK_IN=0 JUDGE_USD_PER_MTOK_OUT=0 \
          JUDGE_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": false}}'
   log "A4B judge up locally ($JUDGE_LOCAL_MODEL, thinking off)"
 }
-judge_down() { [ -f outputs/judge_server.pid ] && kill "$(cat outputs/judge_server.pid)" 2>/dev/null || true; rm -f outputs/judge_server.pid; }
+judge_down() { stop_server judge_server; }

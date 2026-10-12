@@ -349,3 +349,13 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - The rehearsal uses `use_cpu=True`, since MPS breaks multi-process runs.
 - **Tests:** `tests/test_concurrency.py` (4 processes hammering the ledgers; it failed before the fix with FileNotFoundError and JSONDecodeError). A real 2-process `accelerate launch --cpu` of the OPSD, SFT and GRPO trainers (billable, KV-shared tiny model, gradient checkpointing) trained every lora_B. Linux container 3/3; full suite 65 passed; Mac rehearsal 13/13.
 - **Performance note from the Vast log:** vLLM weight sync sends `embed_tokens_per_layer` (5.6 GB, frozen) every step; OPSD dry run ≈ 21 s/step. The money planner sizes steps from the measured speed; syncing only changed weights would be a later speed-up.
+
+## 2026-10-12 — Vast.ai rerun: judge could not start (GPU 3 had 5 of 178 GB free)
+- **Cause:** a leftover vLLM server from the crashed dry run. In `35_dry_run.sh` the OPSD rollout server started before any cleanup trap existed, and `kill <pid>` did not stop child processes. On the rerun the health check accepted that OLD server on port 8000, so the script continued, and the judge then found GPU 3 full. (The pasted FileNotFoundError traceback was from the pre-fix code; the instance had not pulled 7085913.)
+- **Fix (`scripts/_common.sh`):** one `serve()` helper for every server.
+  - It starts the server with `setsid`, so stopping kills the whole process group, engine included.
+  - Before starting, it waits for enough free GPU memory and otherwise prints `nvidia-smi`.
+  - A server counts as up only if the process just started is alive AND `/v1/models` lists the expected model; a stale server on the port is never reused, and a foreign one is refused.
+  - `own_servers` runs first in every GPU script: it stops servers, engines and trainers left by an earlier run from this folder (matched by /proc cwd, any code version) and installs `trap stop_all_servers EXIT`.
+  - `agent_server_up` replaces the inline servers in 30/50.
+- **Tested in a Linux container** with fake vLLM servers (each holding an engine child) and a fake nvidia-smi: the leftover is cleared, the policy server and the judge come up on GPU 3, all engines are gone after exit, and a foreign server is refused.
