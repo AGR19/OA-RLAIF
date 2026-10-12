@@ -46,3 +46,22 @@ def test_agent_task_folder_has_no_gold(tmp_path):
     assert "gold" not in written and "gold_all" not in written
     assert results[0]["correct"]  # scored against the gold kept in the harness
     assert "gold_all" not in (tmp_path / "h2" / "trajectory.json").read_text()
+
+
+def test_only_the_sandbox_setup_calls_docker():
+    """Machines without Docker (Vast.ai containers) use the user sandbox: no other setup or stage script may call
+    docker (an unconditional `docker build` in lambda_setup.sh once stopped the Vast.ai setup)."""
+    import re
+
+    from oa_rlaif.paths import ROOT
+
+    allowed = {"sandbox_setup.sh", "00_check_env.sh", "smoke_mac.sh"}  # check_env: only when OA_AGENT_ENV=docker
+    offenders = []
+    for path in sorted((ROOT / "scripts").glob("*.sh")):
+        if path.name in allowed:
+            continue
+        for line in path.read_text().splitlines():
+            code = line.split("#", 1)[0]
+            if re.search(r"(^|[\s;&|(])docker\s", code):
+                offenders.append(f"{path.name}: {line.strip()}")
+    assert not offenders, offenders
