@@ -44,6 +44,8 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 - TensorBoard `monitor/*` (invalid rate, gold accuracy, NONE share, DRAL mean);
 - `judge_fallbacks` in the log.
 
+**Optional: keep the SFT comparison model.** The one-command run uploads only its scores. To also keep its weights, run `scripts/push_sft.sh` after step 13 (and again after step 14 to add its evaluation). It creates two private repos: `<you>/oa-rlaif-e4b-sft` (LoRA adapter + evaluation + logs) and `<you>/oa-rlaif-e4b-sft-merged` (merged model, about 16 GB, resumable upload). `scripts/push_sft.sh --dry-run` lists what would be uploaded.
+
 ## 3. Results
 - `outputs/eval/<tag>/metrics.json` for base, sdft and grpo;
 - `outputs/agent_runs/<tag>/summary.json` (mini-SWE-agent runs);

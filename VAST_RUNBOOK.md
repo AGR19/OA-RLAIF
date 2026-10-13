@@ -37,6 +37,8 @@ If SSH drops, reconnect; tmux keeps the run going (`tmux attach`). If a step fai
 
 **When it prints DONE:** your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-gguf` (private). Then **destroy the instance** in the Vast.ai console. A stopped instance still bills for its disk.
 
+**Optional: keep the SFT comparison model.** The one-command run uploads only its scores. To also keep its weights, run `scripts/push_sft.sh` after step 13 (and again after step 14 to add its evaluation). It creates two private repos: `<you>/oa-rlaif-e4b-sft` (LoRA adapter + evaluation + logs) and `<you>/oa-rlaif-e4b-sft-merged` (merged model, about 16 GB, resumable upload). `scripts/push_sft.sh --dry-run` lists what would be uploaded.
+
 ## 3. The agent sandbox on Vast.ai
 
 The mini-SWE-agent evaluation (Table 2) runs shell commands written by the model. On Lambda and CoreWeave they run in Docker with no network. A normal Vast.ai instance cannot start Docker, so `scripts/sandbox_setup.sh` sets up the **user sandbox** (`src/oa_rlaif/harness/sandbox.py`):

@@ -367,3 +367,9 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - The trainers' README.md files are skipped (`ignore_patterns`).
   - Each model repo gets our own card with `base_model: google/gemma-4-E4B-it`. The GRPO card states that the adapter goes on top of base + OPSD (merge the sdft adapter first).
   - Verified with the Hub's own validator: it rejects the old value and accepts all three new cards. `tests/test_hf_push.py` covers order, cards and skipped READMEs offline.
+
+## 2026-10-12 — Separate SFT push (user: "I need both the adapters and merged models of sft … separate script")
+- `scripts/push_sft.sh` → `python -m oa_rlaif.data.push_sft` (`--dry-run`, `--force`). It is not part of the one-command run, which still uploads only the SFT scores (step 16).
+- `<ns>/oa-rlaif-e4b-sft` gets one commit: the adapter from checkpoints/sft/final (trainer README skipped), `eval/` (outputs/eval/sft), `eval/agent/` (agent_runs/sft), `logs/` (stage/eval/agent/vLLM logs + TensorBoard runs) and `plan.json` (step plan + dry-run timing).
+- `<ns>/oa-rlaif-e4b-sft-merged` gets merged/sft through resumable `upload_large_folder`.
+- Both repos are created private and checked. Cards say base_model google/gemma-4-E4B-it (peft / transformers); both were accepted by the Hub validator. The script refuses before `sft.done`, and warns and asks for a rerun if `eval_sft.done` is missing. Tests: `tests/test_push_sft.py`.
