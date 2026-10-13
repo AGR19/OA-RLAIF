@@ -67,6 +67,33 @@ class AlignmentEvaluator:
             **{f"hits_at_{k}": sum(v) / len(v) if v else 0.0 for k, v in hits.items()},
         }
 
+    def top1(self, choices, partners, trivial=None, matcher="oa-rlaif-e4b", runtime=None):
+        """DRAL-OA's clf.py regime (precision_at_k / recall_at_k at k = 1), the scoring the user asked for.
+
+        Only source classes that have a partner in the reference are scored (clf.py's link_labels); classes without
+        one are not evaluated. `found` is the model's own top-1 choice for the class (its first submitted target;
+        NONE or an invalid reply = nothing found). Per class: precision@1 = hits / min(1, partners) and
+        recall@1 = hits / partners; both are averaged over the scored classes (macro), as clf.py does.
+        choices: source -> ordered list of chosen targets; partners: source -> set of reference targets;
+        trivial: set of (source, target) reference pairs whose names match (Recall+@1 = hit rate on the classes
+        none of whose reference pairs is trivial)."""
+        precision, recall, hits, answered, plus = [], [], 0, 0, []
+        for source, targets in partners.items():
+            found = list(choices.get(source, []))[:1]
+            n = sum(1 for t in targets if t in found)
+            precision.append(n / min(1, len(targets)))
+            recall.append(n / len(targets))
+            hits += n > 0
+            answered += bool(found)
+            if trivial is not None and not any((source, t) in trivial for t in targets):
+                plus.append(n > 0)
+        p = sum(precision) / len(precision) if precision else 0.0
+        r = sum(recall) / len(recall) if recall else 0.0
+        return {"Matcher": matcher, "Runtime": runtime, "Size": answered, "Precision": p,
+                "F-Measure": 2 * p * r / (p + r) if p + r else 0.0, "Recall": r,
+                "Recall+": sum(plus) / len(plus) if plus else None, "classes_scored": len(partners), "hits": hits,
+                "regime": "clf.py top-1 (reference classes only, model's own choice)"}
+
     def candidate_recall(self, candidates, reference):
         gold = set(reference)
         recovered = sum(t in {x[0] for x in candidates.get(s, [])} for s, t in gold)

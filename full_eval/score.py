@@ -2,7 +2,13 @@
 
     python -m full_eval.score grpo anatomy__mouse-human
 
-How precision and recall are computed (the published protocols, checked 2026-10-13):
+The main score (the user's choice): DRAL-OA clf.py's regime, precision_at_k / recall_at_k at k = 1. Only source classes
+that have a partner in the reference are scored; the model's own top-1 choice (first submitted target; NONE = nothing)
+is a hit if it is a partner; Precision@1 = mean hits / min(1, partners), Recall@1 = mean hits / partners, per pair,
+then the mean over pairs. ICD-10 -> ICD-11: the WHO table is the reference; SNOMED CT -> ICD-11: the ICD-10-composed
+links (silver). oa_rlaif.eval.metrics.AlignmentEvaluator.top1.
+
+Also reported, OAEI's leaderboard measure (the published protocols, checked 2026-10-13):
   OAEI (Anatomy, MultiFarm, DH, Biodiv, Complex, IoTSec):  P = |A∩R|/|A|, R = |A∩R|/|R|, F = 2PR/(P+R), with A the
       system's whole alignment and R the whole reference alignment. Only equivalence correspondences count (OAEI
       Anatomy and DH say so); vocabulary correspondences such as oboInOwl#Synonym = oboInOwl#Synonym are removed.
@@ -148,6 +154,30 @@ class PairScorer:
                 "full": scores_dict(evaluator.evaluate(predicted, self.reference, trivial=self.trivial)),
                 "heldout": scores_dict(evaluator.evaluate(predicted, self.reference, trivial=self.trivial, flagged=self.flagged))}
 
+    def top1(self, choices: dict) -> dict:
+        """clf.py regime in both views: all reference classes, and the held-out ones (training links left out)."""
+        partners: dict = defaultdict(set)
+        for s, t in self.reference:
+            partners[s].add(t)
+        heldout = {s: ts for s, ts in partners.items() if self.zero_shot or any((s, t) not in self.flagged for t in ts)}
+        evaluator = AlignmentEvaluator()
+        return {"full": top1_dict(evaluator.top1(choices, dict(partners), trivial=self.trivial)),
+                "heldout": top1_dict(evaluator.top1(choices, heldout, trivial=self.trivial))}
+
+
+def top1_dict(s: dict) -> dict:
+    return {k: s[k] for k in ("Size", "Precision", "Recall", "F-Measure", "Recall+", "classes_scored", "hits")}
+
+
+def aggregate_top1(rows: list[dict]) -> dict:
+    """Mean over pairs (macro) and pooled over every scored class (micro hit rate)."""
+    if not rows:
+        return {}
+    macro = {k: sum(r[k] for r in rows) / len(rows) for k in ("Precision", "Recall", "F-Measure")}
+    classes = sum(r["classes_scored"] for r in rows)
+    return {"pairs": len(rows), "macro": macro, "classes_scored": classes,
+            "micro_hit_rate": sum(r["hits"] for r in rows) / classes if classes else 0.0}
+
 
 def equivalences(alignment) -> set:
     return {a.pair for a in alignment if a.relation == "="}
@@ -156,10 +186,15 @@ def equivalences(alignment) -> set:
 def summarize(pairs: dict) -> dict:
     family_rows = [p for p in pairs.values() if not p["zero_shot"]]
     zero_rows = [p for p in pairs.values() if p["zero_shot"]]
-    return {"pairs": pairs,
-            "aggregate": {"full": aggregate([p["full"] for p in family_rows]),
-                          "heldout": aggregate([p["heldout"] for p in family_rows])},
-            "zero_shot": {"full": aggregate([p["full"] for p in zero_rows])} if zero_rows else {}}
+    out = {"pairs": pairs,
+           "aggregate": {"full": aggregate([p["full"] for p in family_rows]),
+                         "heldout": aggregate([p["heldout"] for p in family_rows])},
+           "zero_shot": {"full": aggregate([p["full"] for p in zero_rows])} if zero_rows else {}}
+    if all("top1" in p for p in pairs.values()):
+        out["top1"] = {"full": aggregate_top1([p["top1"]["full"] for p in family_rows]),
+                       "heldout": aggregate_top1([p["top1"]["heldout"] for p in family_rows]),
+                       "zero_shot": aggregate_top1([p["top1"]["full"] for p in zero_rows]) if zero_rows else {}}
+    return out
 
 
 def score_pairs(model: str, task: Task, by_pair: dict[str, list[dict]], out: Path) -> dict:
@@ -170,7 +205,8 @@ def score_pairs(model: str, task: Task, by_pair: dict[str, list[dict]], out: Pat
         scorer = PairScorer(spec)
         aligned = {r["source_iri"] for r in records}
         pairs[spec.pair_id] = {
-            **scorer(equivalences(alignment)), "sources": len(records),
+            **scorer(equivalences(alignment)), "top1": scorer.top1({r["source_iri"]: r["targets"] for r in records}),
+            "sources": len(records),
             "decisions": {k: sum(r["decision"] == k for r in records) for k in ("match", "NONE", "invalid")},
             "reference_sources_not_aligned": len({s for s, _ in scorer.reference} - aligned)}
         folder = out / "pairs" / spec.pair_id.replace("/", "__")
@@ -210,9 +246,14 @@ def score_icd10(task: Task, records: list[dict], out: Path) -> dict:
         out_rows[view] = {"codes": len(rows), "accuracy": correct / max(1, len(rows)),
                           "retrieval_ceiling": sum(any(t in r["candidates"] for t in gold[r["source_iri"]]["targets"])
                                                    for r in rows) / max(1, len(rows)), **scores_dict(s)}
+    evaluator = AlignmentEvaluator()
+    choices = {r["source_iri"]: r["targets"] for r in records}
+    partners = {iri: set(g["targets"]) for iri, g in gold.items() if g["targets"]}
+    top1 = {"full": top1_dict(evaluator.top1(choices, partners)),
+            "heldout": top1_dict(evaluator.top1(choices, {k: v for k, v in partners.items() if gold[k]["split"] == "test"}))}
     alignment = [a for r in records for a in picks_of(r)]
     write_oaei_rdf(out / "alignment.rdf", alignment)
-    return {"pairs": {task.pair_ids[0]: out_rows}, "aggregate": out_rows}
+    return {"pairs": {task.pair_ids[0]: out_rows}, "aggregate": out_rows, "top1": top1}
 
 
 def score_snomed_icd11(model: str, task: Task, records: list[dict], out: Path) -> dict:
@@ -233,6 +274,12 @@ def score_snomed_icd11(model: str, task: Task, records: list[dict], out: Path) -
         ceiling = sum(bool(set(r["candidates"]) & links[r["source_iri"]]) for r in rows)
         return {"concepts": len(rows), "agreement": hits / max(1, len(rows)), "retrieval_ceiling": ceiling / max(1, len(rows))}
 
+    evaluator = AlignmentEvaluator()
+    choices = {r["source_iri"]: r["targets"] for r in records}
+    in_run = {r["source_iri"] for r in records}
+    partners = {s: links for s, links in strong.items() if s in in_run}
+    top1 = {"full": top1_dict(evaluator.top1(choices, partners)),
+            "heldout": top1_dict(evaluator.top1(choices, {s: v for s, v in partners.items() if s in test}))}
     n = max(1, len(records))
     result = {"concepts": len(records),
               "mapped": sum(r["decision"] == "match" for r in records) / n,
@@ -262,7 +309,7 @@ def score_snomed_icd11(model: str, task: Task, records: list[dict], out: Path) -
                 f.write("\t".join(str(x).replace("\t", " ") for x in (r["source_iri"], r["source_label"], r["decision"], t, code,
                                                                    label, "" if r["confidence"] is None else r["confidence"],
                                                                    agrees(r) if r["decision"] == "match" else "")) + "\n")
-    return {"pairs": {task.pair_ids[0]: result}, "aggregate": result}
+    return {"pairs": {task.pair_ids[0]: result}, "aggregate": result, "top1": top1}
 
 
 # ---- one unit ------------------------------------------------------------------------------------------------------

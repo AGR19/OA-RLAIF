@@ -119,3 +119,14 @@ def test_lexical_rehearsal_engine_answers_in_the_trained_format():
 def test_every_task_family_of_the_earlier_report_is_present():
     families = {t.column for t in tasks.tasks()}
     assert {"Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "ICD-10→11", "SNOMED→ICD-11"} <= families
+
+
+def test_top1_follows_clf_py_precision_and_recall_at_1():
+    """clf.py: only classes with a reference partner count; P@1 = hits / min(1, partners), R@1 = hits / partners."""
+    partners = {"a": {"x"}, "b": {"y", "z"}, "c": {"w"}}
+    choices = {"a": ["x"], "b": ["z"], "c": [], "d": ["q"]}  # c answered NONE; d has no partner: never scored
+    s = AlignmentEvaluator().top1(choices, partners, trivial={("a", "x")})
+    assert s["classes_scored"] == 3 and s["hits"] == 2 and s["Size"] == 2
+    assert s["Precision"] == pytest.approx(2 / 3)                    # (1 + 1 + 0) / 3
+    assert s["Recall"] == pytest.approx((1 + 0.5 + 0) / 3)           # b has two partners: 1/2
+    assert s["Recall+"] == pytest.approx(1 / 2)                      # a is trivial; b hit, c missed

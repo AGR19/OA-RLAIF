@@ -58,9 +58,18 @@ continues it. **What $50 buys:** at roughly 120–200 decisions/s and $12–16/h
 setup: items 1–3 (every model on every task except Bio-ML) and part of item 4. All five models on everything (≈ 6.5
 million decisions) would cost about $150–200. Faster but not the evaluated weights: `FULL_EVAL_QUANT=fp8`.
 
-## How precision and recall are computed (as the others do)
+## How precision and recall are computed
 
-Checked against the published protocols on 2026-10-13:
+**Main scoring: DRAL-OA's `clf.py` regime** (`precision_at_k` / `recall_at_k` at k = 1). Every reference has its
+classes scored this way, on every dataset: only the source classes that have a partner in the reference are scored;
+the model's own top-1 choice for each (its first submitted target; NONE = nothing found) is a hit if it is a partner.
+Precision@1 = mean of hits / min(1, partners), Recall@1 = mean of hits / partners, per pair, then the mean over pairs
+(`AlignmentEvaluator.top1`). ICD-10 → ICD-11 uses the WHO table as the reference, SNOMED CT → ICD-11 the
+ICD-10-composed links. Tables 1, 1b and 2 of the report. Classes without a counterpart are not scored in this regime.
+
+**Also reported: OAEI's set-based leaderboard measure** (Tables 3 and 4), the one the OAEI 2026 table uses, checked
+against the published protocols on 2026-10-13. Here the whole alignment counts, so a match proposed for a class without
+a counterpart is wrong:
 
 - **OAEI** (Anatomy, MultiFarm, DH, Biodiv, Complex, IoTSec): P = |A∩R|/|A|, R = |A∩R|/|R|, F = 2PR/(P+R), with A the
   whole alignment and R the whole reference. Equivalences only (OAEI Anatomy and DH say so); vocabulary
