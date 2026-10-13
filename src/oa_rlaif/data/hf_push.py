@@ -55,6 +55,8 @@ def model_card(name: str) -> str:
             f"tags: [ontology-matching, opsd, grpo, rlaif, oa-rlaif{', gguf' if kind == 'gguf' else ''}]\n---\n"
             f"# {name} (private)\n\n{text}\n\nPart of OA-RLAIF (github.com/AGR19/OA-RLAIF, private).\n")
 RESULTS = {"oa-rlaif-results": ("outputs/eval", None)}  # dataset repo, pushed last (after the SFT comparison)
+# the research variant "all merged" has its own repo (data/push_all_merged.py); it never goes into the results repo
+RESULTS_IGNORE = ["all_merged/*", "all_merged/**", "*all_merged*"]
 
 CARD = """---
 license: other
@@ -116,8 +118,10 @@ def push_models(repos: dict | None = None, dry_run: bool = False) -> None:
             missing.append(folder)
             print(f"skip {name}: {folder} missing", file=sys.stderr)
             continue
+        ignore = ["README.md"] if name in MODEL_CARDS else RESULTS_IGNORE if name in RESULTS else None
         if dry_run:
-            files = [p for p in path.rglob("*") if p.is_file() and (not patterns or any(fnmatch(p.name, pat) for pat in patterns))]
+            files = [p for p in path.rglob("*") if p.is_file() and (not patterns or any(fnmatch(p.name, pat) for pat in patterns))
+                     and not (ignore and any(fnmatch(p.relative_to(path).as_posix(), pat) for pat in ignore))]
             print(f"[dry-run] would push {len(files)} files ({sum(f.stat().st_size for f in files) / 1e6:.1f} MB) "
                   f"to {ns}/{name} (private)")
             continue
@@ -127,7 +131,7 @@ def push_models(repos: dict | None = None, dry_run: bool = False) -> None:
         if not api.repo_info(repo, repo_type=repo_type).private:
             raise SystemExit(f"{repo} is not private; refusing to upload")
         api.upload_folder(folder_path=str(path), repo_id=repo, repo_type=repo_type, allow_patterns=patterns,
-                          ignore_patterns=["README.md"] if name in MODEL_CARDS else None)
+                          ignore_patterns=ignore)
         if name in MODEL_CARDS:
             api.upload_file(path_or_fileobj=model_card(name).encode(), path_in_repo="README.md", repo_id=repo,
                             repo_type=repo_type)

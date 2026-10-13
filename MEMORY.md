@@ -373,3 +373,15 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 - `<ns>/oa-rlaif-e4b-sft` gets one commit: the adapter from checkpoints/sft/final (trainer README skipped), `eval/` (outputs/eval/sft), `eval/agent/` (agent_runs/sft), `logs/` (stage/eval/agent/vLLM logs + TensorBoard runs) and `plan.json` (step plan + dry-run timing).
 - `<ns>/oa-rlaif-e4b-sft-merged` gets merged/sft through resumable `upload_large_folder`.
 - Both repos are created private and checked. Cards say base_model google/gemma-4-E4B-it (peft / transformers); both were accepted by the Hub validator. The script refuses before `sft.done`, and warns and asks for a rerun if `eval_sft.done` is missing. Tests: `tests/test_push_sft.py`.
+
+## 2026-10-12 — "All merged" research variant (user: "all merge … base plus sft plus grpo plus opsd … do evals on it")
+- `scripts/all_merged.sh` is separate from the one-command run. It merges `checkpoints/sft/final` onto `merged/grpo` with the existing `release merge --adapter … --base …` (into `.partial`, renamed only when complete), then runs `50_eval.sh all_merged --full` and the report. `--push` runs `push_all_merged` (private `oa-rlaif-e4b-all-merged`, resumable weights + eval commit + card accepted by the Hub validator) and `hf_push --results`. `--no-full` skips the whole-Anatomy alignment.
+- It refuses while `scripts/run_all.sh` is running (it would clear that run's servers) or before grpo.done and sft.done.
+- **Exactness, checked on the rehearsal's trained tiny models:** all-merged = GRPO weights + (SFT − base) on the 14 SFT-changed tensors (max error 7e-9); the other 139 tensors are identical to GRPO. So the model is base + OPSD + GRPO + SFT delta (task arithmetic; the SFT delta was trained relative to the base, not to the GRPO model).
+- `50_eval.sh` now writes each model's whole-Anatomy alignment to its own folder (GRPO keeps `full_align/anatomy`). The report adds "All merged (OPSD → GRPO + SFT)" rows (Tables 1–3) when the results exist. The Mac rehearsal has an `all_merged` stage.
+- **Separate location (user: "make sure the all merged results is different location in hf").** The main report and `oa-rlaif-results` never include all-merged material:
+  - `report.ROWS` and `FULL_ALIGN` are the main rows only.
+  - `report --all-merged` writes its own comparison report to `outputs/all_merged_report/`.
+  - `hf_push` uploads results with `RESULTS_IGNORE` (`*all_merged*`).
+  - `all_merged.sh --push` uploads only to `oa-rlaif-e4b-all-merged` (weights, eval/, report/).
+  - Tested: `test_all_merged_has_its_own_report`, `test_results_repo_never_gets_all_merged`.

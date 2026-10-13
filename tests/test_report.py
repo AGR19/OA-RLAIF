@@ -45,3 +45,25 @@ def test_report_bold_rules(tmp_path):
     md = (tmp_path / "eval/report.md").read_text()
     assert "**0.0**" not in md and "**100.0**" not in md and "**2**" not in md
     assert "| 1589 |" in md and "| 19 |" in md and "| 2 |" in md
+
+
+def test_all_merged_has_its_own_report(tmp_path):
+    """The research variant never enters the main report; it gets its own comparison report in its own folder."""
+    from oa_rlaif.eval.report import build
+
+    write(tmp_path / "eval/grpo/metrics.json", {"decisions": {"heldout_anatomy": {"f1": 0.7}}})
+    write(tmp_path / "eval/all_merged/metrics.json", {"decisions": {"heldout_anatomy": {"f1": 0.72}}})
+    write(tmp_path / "agent_runs/all_merged/summary.json", {"episodes": 2, "accuracy": 0.5, "submitted": 2})
+    for folder, f in (("anatomy", 0.85), ("anatomy_all_merged", 0.86)):
+        write(tmp_path / f"full_align/{folder}/summary.json",
+              {"runtime_s": 10, "scores": {"Size": 1, "Precision": f, "F-Measure": f, "Recall": f, "Recall+": 0.5}})
+    label = "All merged (OPSD → GRPO + SFT)"
+    main = build(tmp_path)
+    assert all(label not in [r[0] for r in main[t]["rows"]] for t in ("table1", "table2", "table3"))
+    assert "all_merged" not in " ".join(p.name for p in (tmp_path / "eval").iterdir() if p.is_file())
+    assert not (tmp_path / "eval/full_align_anatomy_all_merged").exists()
+    own = build(tmp_path, all_merged=True)
+    assert [r[0] for r in own["table1"]["rows"]][-1] == label and label in [r[0] for r in own["table2"]["rows"]]
+    assert [r[0] for r in own["table3"]["rows"]][:2] == ["OA-RLAIF E4B (GRPO)", label]
+    assert (tmp_path / "all_merged_report/report.md").exists()
+    assert (tmp_path / "all_merged_report/full_align_anatomy_all_merged/summary.json").exists()

@@ -46,6 +46,8 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 
 **Optional: keep the SFT comparison model.** The one-command run uploads only its scores. To also keep its weights, run `scripts/push_sft.sh` after step 13 (and again after step 14 to add its evaluation). It creates two private repos: `<you>/oa-rlaif-e4b-sft` (LoRA adapter + evaluation + logs) and `<you>/oa-rlaif-e4b-sft-merged` (merged model, about 16 GB, resumable upload). `scripts/push_sft.sh --dry-run` lists what would be uploaded.
 
+**Optional research variant: all merged.** After DONE, `scripts/all_merged.sh` adds the SFT adapter onto the GRPO model (base + OPSD + GRPO + SFT; the SFT weight change is summed in) and runs the same evaluations as for GRPO. Its own comparison tables (base, SFT, OPSD, GRPO and All merged) go to `outputs/all_merged_report/`; the main report is unchanged. `--push` uploads everything all-merged to its own private repo `<you>/oa-rlaif-e4b-all-merged` (weights, evaluation, comparison report); nothing goes into the existing repos. `--no-full` skips the whole-Anatomy alignment. It takes about 1–1.5 h of machine time, and the released GGUF does not change.
+
 ## 3. Results
 - `outputs/eval/<tag>/metrics.json` for base, sdft and grpo;
 - `outputs/agent_runs/<tag>/summary.json` (mini-SWE-agent runs);

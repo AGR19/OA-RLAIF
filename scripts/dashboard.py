@@ -59,6 +59,7 @@ SMOKE_PLAN = [
     ("push", 1, "model push, dry run"),
     ("sft", 2, "SFT comparison, then merge"),
     ("eval_sft", 2, "evaluate the SFT model (batch + agent)"),
+    ("all_merged", 2, "research variant: SFT added onto GRPO, then evaluated"),
     ("report", 1, "results tables"),
     ("results", 1, "results push, dry run"),
 ]

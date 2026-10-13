@@ -57,6 +57,8 @@ stage export     bash -c 'R="$OUT/release/oa-rlaif-e4b"; ls "$OUT/merged/grpo" &
 stage push       $PY -m oa_rlaif.data.hf_push --models --dry-run
 stage sft        bash -c '$PY -m oa_rlaif.train.sdft --mode sft && merge sft'
 stage eval_sft   bash -c 'ev "$OUT/merged/sft" sft && agent sft'
+# research variant (scripts/all_merged.sh on the GPU box): SFT adapter added onto the GRPO model, then evaluated
+stage all_merged bash -c '$PY -m oa_rlaif.export.release merge --adapter "$OUT/checkpoints/sft/final" --base "$OUT/merged/grpo" --out "$OUT/merged/all_merged" && ev "$OUT/merged/all_merged" all_merged && A=data/raw/anatomy-dataset-2 && $PY -m oa_rlaif.eval.full_align --model "$OUT/merged/all_merged" --name anatomy_all_merged --source $A/mouse.owl --target $A/human.owl --reference $A/reference.rdf --limit 12 && agent all_merged && $PY -m oa_rlaif.eval.report --all-merged && $PY -m oa_rlaif.data.push_all_merged --dry-run'
 stage report     bash -c 'A=data/raw/anatomy-dataset-2; $PY -m oa_rlaif.eval.align --backend lexical --model lexical --source $A/mouse.owl --target $A/human.owl --reference $A/reference.rdf --format tsv --no-coherence --out "$OUT/align/anatomy_lexical_baseline" && $PY -m oa_rlaif.eval.report'
 stage results    $PY -m oa_rlaif.data.hf_push --results --dry-run
 

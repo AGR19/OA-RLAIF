@@ -34,3 +34,33 @@ def test_model_push_order_and_cards(tmp_path, monkeypatch):
         base = re.search(r"^base_model: (.+)$", text, re.M).group(1)
         assert base == "google/gemma-4-E4B-it" and "outputs/" not in base
     assert "merge the `oa-rlaif-e4b-sdft` adapter" in cards["me/oa-rlaif-e4b-grpo"]
+
+
+def test_results_repo_never_gets_all_merged(tmp_path, monkeypatch, capsys):
+    import huggingface_hub
+    from fnmatch import fnmatch
+
+    from oa_rlaif.data import hf_push
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    ev = tmp_path / "eval"
+    for rel in ("report.md", "grpo/metrics.json", "agent_grpo.json", "all_merged/metrics.json",
+                "agent_all_merged.json", "full_align_anatomy_all_merged/summary.json"):
+        (ev / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ev / rel).write_text("{}")
+    hf_push.push_models(hf_push.RESULTS, dry_run=True)
+    assert "would push 3 files" in capsys.readouterr().out     # report, grpo metrics, grpo agent: no all-merged
+    calls = []
+
+    class FakeApi:
+        def create_repo(self, repo, **kw): pass
+        def repo_info(self, repo, **kw): return type("Info", (), {"private": True})()
+        def upload_folder(self, **kw): calls.append(kw["ignore_patterns"])
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    monkeypatch.setattr(hf_push, "namespace", lambda: "me")
+    hf_push.push_models(hf_push.RESULTS)
+    ignore = calls[0]
+    files = [p.relative_to(ev).as_posix() for p in ev.rglob("*") if p.is_file()]
+    uploaded = [f for f in files if not any(fnmatch(f, pat) for pat in ignore)]
+    assert sorted(uploaded) == ["agent_grpo.json", "grpo/metrics.json", "report.md"]

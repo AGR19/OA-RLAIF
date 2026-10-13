@@ -68,3 +68,33 @@ def test_push_sft_waits_for_step_13(tmp_path, monkeypatch):
     (tmp_path / "stages" / "sft.done").unlink()
     with pytest.raises(SystemExit, match="step 13"):
         push_sft.main(["--dry-run"])
+
+
+def test_push_all_merged(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    from oa_rlaif.data import push_all_merged
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    with pytest.raises(SystemExit, match="all_merged.sh"):
+        push_all_merged.main(["--dry-run"])
+    m = tmp_path / "merged" / "all_merged"
+    m.mkdir(parents=True)
+    (m / "config.json").write_text("{}")
+    (tmp_path / "eval" / "all_merged").mkdir(parents=True)
+    (tmp_path / "eval" / "all_merged" / "metrics.json").write_text("{}")
+    (tmp_path / "all_merged_report").mkdir()
+    (tmp_path / "all_merged_report" / "report.md").write_text("tables")
+    calls = []
+
+    class FakeApi:
+        def create_repo(self, repo, **kw): calls.append(("create", repo, kw.get("private")))
+        def repo_info(self, repo, **kw): return type("Info", (), {"private": True})()
+        def upload_large_folder(self, **kw): calls.append(("large", kw["repo_id"], kw["private"]))
+        def create_commit(self, **kw): calls.append(("commit", [op.path_in_repo for op in kw["operations"]]))
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    monkeypatch.setattr(push_all_merged, "namespace", lambda: "me")
+    assert push_all_merged.main([]) == 0
+    assert ("create", "me/oa-rlaif-e4b-all-merged", True) in calls and ("large", "me/oa-rlaif-e4b-all-merged", True) in calls
+    assert {"eval/metrics.json", "report/report.md", "README.md"} <= set(next(c[1] for c in calls if c[0] == "commit"))

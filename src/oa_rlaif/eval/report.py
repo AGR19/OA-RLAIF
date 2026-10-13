@@ -21,6 +21,12 @@ from ..paths import out_dir
 
 # Stage 1 is OPSD: the frozen teacher sees the ground-truth answer (internal tag "sdft" = TRL's SDFTTrainer class).
 ROWS = [("base", "Gemma 4 E4B (base)"), ("sft", "+ SFT"), ("sdft", "+ OPSD"), ("grpo", "+ OPSD → GRPO (RLAIF)")]
+# whole-Anatomy alignments in OAEI form: output folder under full_align/ -> row label
+FULL_ALIGN = [("anatomy", "OA-RLAIF E4B (GRPO)")]
+# The research variant (scripts/all_merged.sh) never enters the main report or the results repo: it gets its own
+# comparison report (outputs/all_merged_report/), uploaded only to its own repo (data/push_all_merged.py).
+ALL_MERGED_ROW = ("all_merged", "All merged (OPSD → GRPO + SFT)")
+ALL_MERGED_FULL_ALIGN = ("anatomy_all_merged", "All merged (OPSD → GRPO + SFT)")
 DECISIONS = [("heldout_anatomy", "Anatomy", "f1"), ("heldout_bioml", "Bio-ML", "f1"),
              ("heldout_multifarm", "MultiFarm", "f1"), ("heldout_dh", "DH", "f1"),
              ("heldout_dh_multiling", "DH-ML", "f1"), ("heldout_biodiv", "Biodiv", "f1"),
@@ -38,10 +44,10 @@ def _load(path: Path):
         return None
 
 
-def main_table(base: Path) -> tuple[list[str], list[tuple[str, list]]]:
+def main_table(base: Path, rows_spec=None) -> tuple[list[str], list[tuple[str, list]]]:
     header = [label for _, label, _ in DECISIONS] + [label for _, label in KNOWLEDGE] + ["Average"]
     rows = []
-    for tag, label in ROWS:
+    for tag, label in rows_spec or ROWS:
         metrics = _load(base / tag / "metrics.json")
         if metrics is None:
             continue
@@ -53,30 +59,31 @@ def main_table(base: Path) -> tuple[list[str], list[tuple[str, list]]]:
     return header, rows
 
 
-def agent_table(root: Path) -> tuple[list[str], list[tuple[str, list]]]:
+def agent_table(root: Path, rows_spec=None) -> tuple[list[str], list[tuple[str, list]]]:
     rows = []
-    for tag, label in ROWS:
+    for tag, label in rows_spec or ROWS:
         s = _load(root / "agent_runs" / tag / "summary.json")
         if s:
             rows.append((label, [100 * s["accuracy"], 100 * s["submitted"] / max(1, s["episodes"]), s["episodes"]]))
     return ["Correct (%)", "Submitted (%)", "Episodes"], rows
 
 
-def sandbox_note(root: Path) -> str:
+def sandbox_note(root: Path, rows_spec=None) -> str:
     """How the agents were isolated (Docker, or the user sandbox on machines without Docker), from summary.json."""
-    seen = {(s.get("sandbox", "docker"), s.get("network", "none")) for tag, _ in ROWS
+    seen = {(s.get("sandbox", "docker"), s.get("network", "none")) for tag, _ in rows_spec or ROWS
             if (s := _load(root / "agent_runs" / tag / "summary.json"))}
     return "; ".join(f"sandbox {box}, network {net}" for box, net in sorted(seen))
 
 
-def oaei_table(root: Path) -> tuple[list[str], list[tuple[str, list]]]:
+def oaei_table(root: Path, full_align=None) -> tuple[list[str], list[tuple[str, list]]]:
     header = ["Runtime (s)", "Size", "Precision", "F-Measure", "Recall", "Recall+"]
     rows = []
-    ours = _load(root / "full_align" / "anatomy" / "summary.json")
-    if ours and ours.get("scores"):
-        s = ours["scores"]
-        rows.append(("OA-RLAIF E4B (GRPO)", [ours.get("runtime_s"), s.get("Size"), s.get("Precision"),
-                                              s.get("F-Measure"), s.get("Recall"), s.get("Recall+")]))
+    for folder, label in full_align or FULL_ALIGN:
+        ours = _load(root / "full_align" / folder / "summary.json")
+        if ours and ours.get("scores"):
+            s = ours["scores"]
+            rows.append((label, [ours.get("runtime_s"), s.get("Size"), s.get("Precision"),
+                                 s.get("F-Measure"), s.get("Recall"), s.get("Recall+")]))
     lexical = _load(root / "align" / "anatomy_lexical_baseline" / "report.json")
     if lexical and lexical.get("scores"):
         s = lexical["scores"]
@@ -123,31 +130,36 @@ def render(title: str, header: list[str], rows, fmt: str | list[str], higher=Non
     return "\n".join(md), "\n".join(tex)
 
 
-def build(root: Path | None = None) -> dict:
+def build(root: Path | None = None, all_merged: bool = False) -> dict:
+    """The main report (outputs/eval/report.*), or with all_merged=True the research variant's own comparison report
+    (outputs/all_merged_report/report.*: the main rows plus "All merged")."""
     root = root or out_dir()
-    h1, r1 = main_table(root / "eval")
-    h2, r2 = agent_table(root)
-    h3, r3 = oaei_table(root)
+    rows_spec = ROWS + ([ALL_MERGED_ROW] if all_merged else [])
+    full_align = FULL_ALIGN + ([ALL_MERGED_FULL_ALIGN] if all_merged else [])
+    h1, r1 = main_table(root / "eval", rows_spec)
+    h2, r2 = agent_table(root, rows_spec)
+    h3, r3 = oaei_table(root, full_align)
     parts = [render("Table 1. Held-out and zero-shot decisions (F1 ×100), ICD-10→11 accuracy ×100, SNOMED→ICD-11 "
                     "bridge recovery ×100 (held-out ICD-10 categories; retrieval misses count as failures) and "
                     "closed-book knowledge (token F1 ×100).", h1, r1, "{:.1f}"),
-             render(f"Table 2. The same models as mini-SWE-agents (Anatomy; {sandbox_note(root) or 'sandbox not run'}).", h2, r2,
+             render(f"Table 2. The same models as mini-SWE-agents (Anatomy; {sandbox_note(root, rows_spec) or 'sandbox not run'}).", h2, r2,
                     ["{:.1f}", "{:.1f}", "{:.0f}"], higher=[True, True, None]),
              render("Table 3. Whole Anatomy alignment in OAEI form.", h3, r3, ["{:.0f}", "{:.0f}"] + ["{:.3f}"] * 4,
                     higher=[False, None, True, True, True, True])]
     md = "\n\n".join(p[0] for p in parts) + "\n\n_“–” = not measured. DRAL-OA row: official OAEI 2025 results (CEUR Vol-4144)._\n"
     tex = "\n\n".join(p[1] for p in parts) + "\n"
-    out = root / "eval"
+    out = root / ("all_merged_report" if all_merged else "eval")
     out.mkdir(parents=True, exist_ok=True)
     # gather the agent and whole-alignment outputs next to the report, so the private results repo holds everything
     import shutil
-    for tag, _ in ROWS:
+    for tag, _ in rows_spec:
         summary = root / "agent_runs" / tag / "summary.json"
         if summary.exists():
             shutil.copyfile(summary, out / f"agent_{tag}.json")
-    full = root / "full_align" / "anatomy"
-    if full.exists():
-        shutil.copytree(full, out / "full_align_anatomy", dirs_exist_ok=True)
+    for folder, _ in full_align:
+        full = root / "full_align" / folder
+        if full.exists():
+            shutil.copytree(full, out / f"full_align_{folder}", dirs_exist_ok=True)
     (out / "report.md").write_text(md)
     (out / "report.tex").write_text(tex)
     data = {"table1": {"header": h1, "rows": r1}, "table2": {"header": h2, "rows": r2}, "table3": {"header": h3, "rows": r3}}
@@ -156,8 +168,11 @@ def build(root: Path | None = None) -> dict:
 
 
 def main() -> int:
-    build()
-    print((out_dir() / "eval" / "report.md").read_text())
+    import sys
+
+    all_merged = "--all-merged" in sys.argv[1:]
+    build(all_merged=all_merged)
+    print((out_dir() / ("all_merged_report" if all_merged else "eval") / "report.md").read_text())
     return 0
 
 
