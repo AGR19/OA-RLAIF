@@ -359,3 +359,11 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - `own_servers` runs first in every GPU script: it stops servers, engines and trainers left by an earlier run from this folder (matched by /proc cwd, any code version) and installs `trap stop_all_servers EXIT`.
   - `agent_server_up` replaces the inline servers in 30/50.
 - **Tested in a Linux container** with fake vLLM servers (each holding an engine child) and a fake nvidia-smi: the leftover is cleared, the policy server and the judge come up on GPU 3, all engines are gone after exit, and a foreign server is refused.
+
+## 2026-10-12 — Vast.ai step 12 (push) failed: Hub rejected the GRPO adapter's model card
+- **Cause:** `trainer.save_model` writes a README.md whose YAML says `base_model: outputs/merged/sdft` (the local folder GRPO trained on). The Hub validates model-card metadata on upload and rejects non-Hub ids. The push order was sdft, grpo, gguf, so the OPSD adapter went up, GRPO failed, and **the GGUF had not been uploaded**.
+- **Fix (`data/hf_push.py`):**
+  - The GGUF is pushed first.
+  - The trainers' README.md files are skipped (`ignore_patterns`).
+  - Each model repo gets our own card with `base_model: google/gemma-4-E4B-it`. The GRPO card states that the adapter goes on top of base + OPSD (merge the sdft adapter first).
+  - Verified with the Hub's own validator: it rejects the old value and accepts all three new cards. `tests/test_hf_push.py` covers order, cards and skipped READMEs offline.

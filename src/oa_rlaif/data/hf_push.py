@@ -26,11 +26,34 @@ DATASETS = {
 }
 # repo -> (folder, files to upload). The GGUF repo holds the final model: base E4B + SDFT + GRPO (DRAL-OA + A4B judge)
 # merged and quantized; the f16 intermediate is not uploaded.
+# The GGUF goes first: it is the deliverable, so a problem with a later repo cannot keep it off the Hub.
 MODELS = {
+    "oa-rlaif-e4b-gguf": ("outputs/release/oa-rlaif-e4b", ["*Q4_K_M.gguf", "Modelfile"]),
     "oa-rlaif-e4b-sdft": ("outputs/checkpoints/sdft/final", None),
     "oa-rlaif-e4b-grpo": ("outputs/checkpoints/grpo/final", None),
-    "oa-rlaif-e4b-gguf": ("outputs/release/oa-rlaif-e4b", ["*Q4_K_M.gguf", "Modelfile"]),
 }
+BASE_MODEL = "google/gemma-4-E4B-it"
+# Our own model cards. The trainers write a README.md into each adapter folder whose metadata names the local folder
+# the adapter was trained on (GRPO: base_model "outputs/merged/sdft"); the Hub rejects that, so it is not uploaded.
+MODEL_CARDS = {
+    "oa-rlaif-e4b-gguf": ("gguf", "The OA-RLAIF model: Gemma 4 E4B + Stage 1 OPSD + Stage 2 GRPO (DRAL-OA reward + A4B "
+                                  "judge, i.e. RLAIF), merged and quantized to GGUF Q4_K_M.\n\n"
+                                  "Run with Ollama: `ollama create oa-rlaif-e4b -f Modelfile`, then `ollama run oa-rlaif-e4b`."),
+    "oa-rlaif-e4b-sdft": ("peft", "Stage 1 (OPSD, on-policy self-distillation) LoRA adapter for `google/gemma-4-E4B-it`. "
+                                  "Apply it to the base model."),
+    "oa-rlaif-e4b-grpo": ("peft", "Stage 2 (GRPO with the DRAL-OA reward and the A4B judge, i.e. RLAIF) LoRA adapter. "
+                                  "It was trained on top of the OPSD model, not the plain base: first merge the "
+                                  "`oa-rlaif-e4b-sdft` adapter into `google/gemma-4-E4B-it`, then apply this adapter. "
+                                  "(`adapter_config.json` names the local folder of that merged model.)"),
+}
+
+
+def model_card(name: str) -> str:
+    kind, text = MODEL_CARDS[name]
+    library = "library_name: peft\n" if kind == "peft" else ""
+    return (f"---\nlicense: other\nlicense_name: mixed-private\nbase_model: {BASE_MODEL}\n{library}"
+            f"tags: [ontology-matching, opsd, grpo, rlaif, oa-rlaif{', gguf' if kind == 'gguf' else ''}]\n---\n"
+            f"# {name} (private)\n\n{text}\n\nPart of OA-RLAIF (github.com/AGR19/OA-RLAIF, private).\n")
 RESULTS = {"oa-rlaif-results": ("outputs/eval", None)}  # dataset repo, pushed last (after the SFT comparison)
 
 CARD = """---
@@ -103,7 +126,11 @@ def push_models(repos: dict | None = None, dry_run: bool = False) -> None:
         api.create_repo(repo, repo_type=repo_type, private=True, exist_ok=True)
         if not api.repo_info(repo, repo_type=repo_type).private:
             raise SystemExit(f"{repo} is not private; refusing to upload")
-        api.upload_folder(folder_path=str(path), repo_id=repo, repo_type=repo_type, allow_patterns=patterns)
+        api.upload_folder(folder_path=str(path), repo_id=repo, repo_type=repo_type, allow_patterns=patterns,
+                          ignore_patterns=["README.md"] if name in MODEL_CARDS else None)
+        if name in MODEL_CARDS:
+            api.upload_file(path_or_fileobj=model_card(name).encode(), path_in_repo="README.md", repo_id=repo,
+                            repo_type=repo_type)
         print(f"pushed {repo} (private)")
     if missing:
         raise SystemExit(f"not pushed (missing): {missing}")
