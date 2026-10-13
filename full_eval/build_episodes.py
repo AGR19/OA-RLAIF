@@ -1,0 +1,293 @@
+"""Build one decision episode per class for every task: the prompts the models answer (CPU only).
+
+    python -m full_eval.build_episodes                 # every task, in the run's priority order
+    python -m full_eval.build_episodes --task anatomy__mouse-human --limit 50   # a quick check
+
+Each episode is what training and the earlier evaluation used: the source card, k candidate cards (anatomy k=40, else
+k=20; q-gram retrieval, multilingual e5 retrieval for MultiFarm and DH multilingual, ICD-11 retrieval with ancestor
+expansion for the ICD tasks), the pair id and both modelling profiles. Differences from the held-out sets, all needed
+for a whole alignment: every source class gets an episode (not only classes with a reference link); candidates come
+from retrieval over the whole target (Bio-ML's local 100-candidate pools contain the answer, so they are not used);
+the answer is never inserted into the candidates; deprecated and vocabulary entities are neither sources nor candidates.
+
+Output: outputs/full_eval/episodes/<task>/<shard>.jsonl.gz (2,000 episodes each), gold.json for the ICD tasks,
+manifest.json (counts per pair, entities left out and why) and READY when the task is complete.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import multiprocessing as mp
+import os
+import random
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+
+from oa_rlaif.paths import out_dir
+
+from .tasks import GIANT, SNOMED_ICD_ROOTS, Task, deprecated_iris, is_meta, load_profile_any, scope, tasks
+
+SHARD = 2000
+_W: dict = {}  # worker state, set in the parent before forking (shared copy-on-write)
+
+
+def episodes_dir(task: Task) -> Path:
+    return out_dir() / "full_eval" / "episodes" / task.slug
+
+
+def write_shard(path: Path, episodes: list[dict]) -> None:
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=3) as f:
+        for e in episodes:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    tmp.replace(path)
+
+
+def read_shard(path: Path) -> list[dict]:
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def build_workers() -> int:
+    """Worker processes for retrieval: forked workers slowly copy the parent's large indexes (SNOMED CT, NCIT), so the
+    count is capped (FULL_EVAL_BUILD_WORKERS, default 16) and kept to one per 24 GB of RAM."""
+    cpus = max(1, (os.cpu_count() or 2) - 2)
+    try:
+        ram_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
+    except (ValueError, OSError, AttributeError):
+        ram_gb = 64
+    return max(1, min(cpus, int(os.environ.get("FULL_EVAL_BUILD_WORKERS", "16")), int(ram_gb // 24) or 1))
+
+
+def config() -> dict:
+    from oa_rlaif.io import read_yaml
+    from oa_rlaif.paths import config_dir
+
+    return read_yaml(config_dir() / "data.yaml")["episodes"]
+
+
+# ---- ontology pairs ------------------------------------------------------------------------------------------------
+def _pair_chunk(args) -> tuple[str, int]:
+    """Worker: episodes for a slice of one pair's sources, written straight to its shard."""
+    from oa_rlaif.data.cards import card, kind_of
+    from oa_rlaif.data.episodes import episode_id
+
+    shard_path, iris = args
+    w = _W
+    spec, source, target = w["spec"], w["source"], w["target"]
+    out = []
+    for iri in iris:
+        kind = kind_of(source, iri)
+        if w["semantic"] is not None:
+            ranked = w["semantic"].get(iri, [])
+        else:
+            ranked = w["generator"].candidates(source.entities[iri], k=w["k"] * 4)
+        cands = [c for c, _ in ranked if c in w["targets"] and kind_of(target, c) == kind][: w["k"]]
+        random.Random(episode_id(spec.pair_id, iri, "full")).shuffle(cands)  # position carries no signal
+        out.append({"id": episode_id(spec.pair_id, iri, "full"), "family": spec.family, "pair_id": spec.pair_id,
+                    "relation": "=", "source_iri": iri,
+                    "source_card": card(source, iri, spec.source_lang, w["kids_s"]),
+                    "source_profile": w["profiles"][0], "target_profile": w["profiles"][1],
+                    "candidates": [{"iri": c, "card": card(target, c, spec.target_lang, w["kids_t"])} for c in cands]})
+    write_shard(Path(shard_path), out)
+    return shard_path, len(out)
+
+
+def semantic_candidates(source, target, iris: list[str], targets: set[str], model: str, k: int) -> dict[str, list]:
+    """The same ranking as oa_rlaif.retrieval.semantic.SemanticIndex.search (e5 'query:' text, exact cosine over the
+    target's declared entities), with every source query encoded in one batch."""
+    import numpy as np
+
+    from oa_rlaif.retrieval.semantic import SemanticIndex, encoder, entity_text
+
+    index = SemanticIndex(target, model, cache_key=None)
+    queries = encoder(model).encode([entity_text(source.entities[i]) for i in iris], batch_size=256,
+                                    normalize_embeddings=True, show_progress_bar=False).astype("float32")
+    scores = queries @ index.vectors.T
+    out = {}
+    for row, iri in zip(scores, iris):
+        top = np.argsort(-row)[: k * 4]
+        out[iri] = [(index.ids[j], float(row[j])) for j in top]
+    return out
+
+
+def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> dict:
+    from oa_rlaif.data.cards import children_index
+    from oa_rlaif.retrieval.candidates import CandidateGenerator
+
+    cfg = config()
+    folder = episodes_dir(task)
+    manifest: dict = {"task": task.slug, "pairs": {}, "shards": {}}
+    for p_index, spec in enumerate(sorted(task.specs, key=lambda s: s.pair_id)):
+        source, target = load_profile_any(spec.source), load_profile_any(spec.target)
+        dep_s, dep_t = deprecated_iris(spec.source), deprecated_iris(spec.target)
+        iris = scope(source, dep_s)
+        targets = set(scope(target, dep_t))
+        declared = sum(1 for e in source.entities.values() if e.declared)
+        manifest["pairs"][spec.pair_id] = {
+            "source": spec.source.name, "target": spec.target.name, "sources": len(iris),
+            "declared": declared, "left_out_deprecated": sum(1 for i in dep_s if i in source.entities),
+            "left_out_vocabulary": sum(1 for i, e in source.entities.items() if e.declared and is_meta(i)),
+            "target_entities": len(targets)}
+        if limit:
+            iris = iris[:limit]
+        k = cfg.get("k_by_family", {}).get(spec.family, cfg.get("k", 20))
+        mode = cfg.get("retrieval_by_family", {}).get(spec.family, "lexical")
+        _W.clear()
+        _W.update(spec=spec, source=source, target=target, targets=targets, k=k,
+                  kids_s=children_index(source), kids_t=children_index(target),
+                  profiles=pair_profiles.get(spec.pair_id, ("", "")), semantic=None, generator=None)
+        if mode == "semantic":
+            _W["semantic"] = semantic_candidates(source, target, iris, targets, cfg.get("semantic_model"), k)
+        else:
+            _W["generator"] = CandidateGenerator(target)
+        chunks = [(str(folder / f"{p_index:04d}-{c:05d}.jsonl.gz"), iris[i:i + SHARD])
+                  for c, i in enumerate(range(0, len(iris), SHARD))]
+        if len(iris) > 4 * SHARD and workers > 1:
+            with mp.get_context("fork").Pool(workers) as pool:
+                results = pool.map(_pair_chunk, chunks, chunksize=1)
+        else:
+            results = [_pair_chunk(c) for c in chunks]
+        for path, n in results:
+            manifest["shards"][Path(path).name] = n
+        print(f"  {spec.pair_id}: {len(iris):,} episodes", flush=True)
+    return manifest
+
+
+# ---- ICD tasks ------------------------------------------------------------------------------------------------------
+def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
+    """WHO ICD-10 -> ICD-11 (every ICD-10 code in the WHO tables) or SNOMED CT -> ICD-11 (every active concept in
+    ICD's scope), with the training-time ICD-11 retrieval (data/icd_triangulation.py) and its source cards."""
+    from oa_rlaif.data import icd_triangulation as icd
+    from oa_rlaif.data.cards import card
+    from oa_rlaif.ontology.models import Entity, Label
+
+    counts: dict = defaultdict(int)
+    leg_b, icd10_title, icd11_info = icd.read_who(counts)
+    owl = load_profile_any(icd.icd_dir() / "icd11.owl")
+    icd11 = icd._icd11_profile(icd11_info, owl)
+    ancestors = icd._ancestors(icd11_info, owl, icd.EXPANSION["depth"])
+    items, gold, info = [], {}, {}
+    pair_id = task.pair_ids[0]
+    if task.family == "icd10":
+        for code, targets in sorted(leg_b.items()):
+            e = Entity(icd.ICD10 + code, declared=True)
+            e.labels.add(Label(icd10_title.get(code, code), "en", "label"))
+            e.codes.add(code)
+            category, parent = code.split(".")[0], None
+            source_card = f"IRI: {icd.ICD10 + code}\nname: {icd10_title.get(code, code)}"
+            if category != code and category in icd10_title:
+                parent = Entity(icd.ICD10 + category, declared=True)
+                parent.labels.add(Label(icd10_title[category], "en", "label"))
+                source_card += f"\nparents: {icd10_title[category]}"
+            source_card += f"\ncodes: {code}"
+            items.append((pair_id, "full", e, parent, source_card, [], "full", {"relation": "classified_under"}))
+            gold[icd.ICD10 + code] = {"targets": sorted(targets), "split": icd.bridge_split(code)}
+        info = {"source": "WHO ICD-10 codes in the 10To11 tables", "sources": len(items)}
+    else:
+        sct = icd.Snomed(counts, sample_concepts=0, seed=13)
+        concept_file = next((icd.rf2_dir() / "Snapshot" / "Terminology").glob("sct2_Concept_*"))
+        active = [row["id"] for row in icd._rf2(concept_file) if row["active"] == "1"]
+        sct.load(set(active))
+        all_scope = os.environ.get("FULL_EVAL_SNOMED_SCOPE", "icd") == "all"
+        if all_scope:
+            chosen = sorted(active)
+        else:
+            children: dict[str, set[str]] = defaultdict(set)
+            for cid, parents in sct.parents.items():
+                for p in parents:
+                    children[p[len(icd.SCT):] if p.startswith(icd.SCT) else p].add(cid)
+            chosen, stack = set(), list(SNOMED_ICD_ROOTS)
+            while stack:
+                node = stack.pop()
+                for child in children.get(node, ()):
+                    if child not in chosen and child in sct.active:
+                        chosen.add(child)
+                        stack.append(child)
+            chosen = sorted(chosen | set(SNOMED_ICD_ROOTS))
+        for cid in chosen:
+            iri = icd.SCT + cid
+            entity = sct.entity(cid)
+            context = {iri: entity}
+            parent = Entity(iri + "#parents", declared=True)
+            for p in entity.parents:
+                context[p] = Entity(p, declared=True)
+                context[p].labels.add(Label(sct.name(p[len(icd.SCT):]), "en", "prefLabel"))
+                parent.labels.add(Label(sct.name(p[len(icd.SCT):]), "en", "label"))
+            source_card = card(icd._Profile(context), iri)
+            items.append((pair_id, "full", entity, parent, source_card, [], "full", {"relation": "classified_under"}))
+        info = {"source": "SNOMED CT US 2026-03 RF2, active concepts", "scope": "all active concepts" if all_scope else
+                "ICD's scope: descendants of " + ", ".join(SNOMED_ICD_ROOTS.values()),
+                "active_concepts": len(active), "sources": len(items)}
+    if limit:
+        items = items[:limit]
+    episodes = icd._parallel_episodes(icd11, ancestors, items, k=20, seed=13, workers=build_workers())
+    profiles = pair_profiles.get(pair_id, ("", ""))
+    folder = episodes_dir(task)
+    manifest: dict = {"task": task.slug, "pairs": {pair_id: info}, "shards": {}}
+    keep = ("id", "family", "pair_id", "relation", "source_iri", "source_card", "candidates")
+    for c, i in enumerate(range(0, len(episodes), SHARD)):
+        chunk = [{**{k: e[k] for k in keep}, "source_profile": profiles[0], "target_profile": profiles[1]}
+                 for e in episodes[i:i + SHARD]]
+        name = f"0000-{c:05d}.jsonl.gz"
+        write_shard(folder / name, chunk)
+        manifest["shards"][name] = len(chunk)
+    if gold:
+        (folder / "gold.json").write_text(json.dumps(gold))
+    print(f"  {pair_id}: {len(episodes):,} episodes", flush=True)
+    return manifest
+
+
+def build(task: Task, limit: int = 0, workers: int | None = None) -> dict:
+    from oa_rlaif.data.render import pair_profiles
+
+    folder = episodes_dir(task)
+    if (folder / "READY").exists() and not limit:
+        return json.loads((folder / "manifest.json").read_text())
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in [*folder.glob("*.jsonl.gz"), folder / "FAILED"]:
+        old.unlink(missing_ok=True)
+    started = time.time()
+    workers = workers or build_workers()
+    profiles = pair_profiles()
+    manifest = build_icd(task, limit, profiles) if task.family in ("icd10", "snomed_icd11") else \
+        build_pairs(task, limit, workers, profiles)
+    manifest.update(episodes=sum(manifest["shards"].values()), seconds=round(time.time() - started), limit=limit,
+                    giant=task.slug in GIANT)
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    if not limit:
+        (folder / "READY").write_text(str(time.time()))
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    from .schedule import selected_tasks, task_order
+
+    parser = argparse.ArgumentParser(prog="full_eval.build_episodes")
+    parser.add_argument("--task", action="append", help="task slug (default: every task, in priority order)")
+    parser.add_argument("--limit", type=int, default=0, help="first N sources per pair (a check; not marked READY)")
+    parser.add_argument("--workers", type=int, default=0)
+    args = parser.parse_args(argv)
+    import traceback
+
+    failures = 0
+    for task in task_order(args.task or selected_tasks()):
+        print(f"[episodes] {task.slug}", flush=True)
+        try:
+            m = build(task, args.limit, args.workers or None)
+        except Exception:  # one task failing must not stop the others; the run reports it
+            failures += 1
+            episodes_dir(task).mkdir(parents=True, exist_ok=True)
+            (episodes_dir(task) / "FAILED").write_text(traceback.format_exc())
+            print(traceback.format_exc(), flush=True)
+            continue
+        print(f"[episodes] {task.slug}: {m['episodes']:,} episodes in {m.get('seconds', 0)} s", flush=True)
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

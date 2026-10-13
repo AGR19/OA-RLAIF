@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.skipif(not shutil.which("git") or not (ROOT / ".git").exists(), reason="not a git checkout")
 def test_no_code_is_git_ignored():
-    files = [p for d in ("src", "tests", "scripts", "configs", "docker") for p in (ROOT / d).rglob("*")
+    files = [p for d in ("src", "tests", "scripts", "configs", "docker", "full_eval") for p in (ROOT / d).rglob("*")
              if p.is_file() and "__pycache__" not in p.parts and ".egg-info" not in str(p)
              and p.suffix in {".py", ".sh", ".yaml", ".yml", ".toml", ".om", ""} and p.name != ".DS_Store"]
     assert files
