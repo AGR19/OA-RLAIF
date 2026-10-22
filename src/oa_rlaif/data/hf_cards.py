@@ -174,7 +174,7 @@ TRAINING = """| Setting | SFT | OPSD | GRPO |
 | Batch per GPU × accumulation | 8 × 4 | 8 × 4 | 8 × 2, G = 8 replies per prompt |
 | Completion length | 384 tokens | 384 tokens (one sample per prompt, temperature 1.0) | 256 tokens (temperature 1.0) |
 | Other | completion-only loss | teacher = frozen base with the privileged context; top-100 logit distillation | Dr. GRPO, β = 0, rewards not scaled |
-| Steps | 437 (planned for the money left; OPSD ran 539) | 539 | planned from the dry run and the money left (stage log) |
+| Steps (from each adapter's `training_args.bin`) | 437 | 539 | 1,068 |
 
 Hardware: 4 × B200 on Vast.ai (3 GPUs train; 1 GPU serves vLLM rollouts and, in GRPO, the A4B judge)."""
 
@@ -311,7 +311,7 @@ cd oa-rlaif-e4b && ollama create oa-rlaif-e4b -f Modelfile && ollama run oa-rlai
 hf download gonibeed/oa-rlaif-e4b-all-combined-model-gguf --local-dir oa-rlaif-all-combined
 cd oa-rlaif-all-combined && ollama create oa-rlaif-all-combined -f Modelfile && ollama run oa-rlaif-all-combined
 ```
-Converted from `oa-rlaif-e4b-all-combined-model-safetensors` on Hugging Face Jobs with llama.cpp b11205
+Converted from `oa-rlaif-e4b-all-combined-model-safetensors` on Hugging Face Jobs with llama.cpp b11206
 (`convert_hf_to_gguf.py` to f16, then `llama-quantize` Q4_K_M). `Modelfile`: temperature 0, context 16,384, stop
 `<turn|>`.""",
     }[name]
