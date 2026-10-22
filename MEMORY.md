@@ -395,3 +395,15 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 - **Anatomy > 0.9 (user):** measured on the earlier run's whole-Anatomy alignments (full reference): GRPO 0.883 (vocabulary removed), GRPO + exact-label anchors 0.904, (GRPO ∩ All merged) + anchors 0.908. `full_eval/variants.py` reports these two as separate rows (with the held-out view); chosen after that measurement, never presented instead of the model rows.
 - **Tests:** `tests/test_full_eval.py` (9). Mac rehearsal with `FULL_EVAL_FAKE=lexical` ran plan → episodes → workers → scoring → variants → report (lexical stand-in: Anatomy F 0.850 on the full reference).
 - **2026-10-13, scoring changed (user: "score like clf.py … top-1 hit rate on the classes that have a partner (the model's own choice)"; "make sure every ontology … follows this regime, even on the vast.ai").** Main score everywhere is now DRAL-OA clf.py's regime at k = 1 (`AlignmentEvaluator.top1`): only source classes with a reference partner are scored; found = the model's own first target (NONE = nothing); P@1 = mean hits/min(1, partners), R@1 = mean hits/partners; per pair, then mean over pairs. full_eval Tables 1/1b/2 use it (ICD-10→11 against the WHO table, SNOMED→ICD-11 against the composed links); OAEI's set-based measure stays as Tables 3/4 because the OAEI leaderboard uses it. The AI-test console and run_matching.sh ask for a reference (optional) and write both rows to results.md. AI-test run s1 (all merged, thinking on, human→mouse): clf top-1 P@1 0.926, R@1 0.924, F 0.925, Recall+@1 0.825 on 1,509 classes; OAEI set-based P 0.656, R 0.747, F 0.699 (partnerless matches, and 1:1 ties at confidence 0.95 dropped 265 correct matches).
+
+## 2026-10-22 — full evaluation: full alignments only, six methods, thinking off and on
+- **Supersedes the 2026-10-13 scoring entry.** The user's decisions:
+  - **Full alignments only.** Every class is aligned and every score uses the whole reference. There is no held-out view, and nothing is copied from the earlier held-out run.
+  - **Two scores:** OAEI whole-alignment P/R/F/Recall+ (MELT protocol) and the **Top-k evaluation (k = 1, 3, 5)**: Precision@k, Recall@k and F-measure@k of DRAL-OA's `clf.py` (`AlignmentEvaluator.topk`). Metrics are never named after a person.
+  - **Methods:** base, SFT, OPSD, OPSD→GRPO, All merged, and **All merged + mini-SWE-agent**. Each runs with **thinking off and on**.
+    - The agent is the same harness as the local console (`om_agent/`): vLLM backend, user sandbox on Vast.ai.
+    - It never asks for or sees a reference.
+  - **Budget** default $100. Priority: thinking off (all tasks except Bio-ML, then SNOMED→ICD-11), then thinking on, then Bio-ML.
+  - IoTSec→UCO (raw folder `cybersecurity/`) gets its own Cybersecurity column.
+- `oa_rlaif.eval.thinking.split` separates Gemma 4's thinking channel from the answer. It is the same function in `full_eval/infer.py` and `om_agent/`.
+- The method figure now shows SFT as a trained arm that feeds the merged model, and has no compute footer.

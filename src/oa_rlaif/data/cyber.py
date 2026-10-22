@@ -1,9 +1,12 @@
 """Cybersecurity zero-shot test pair: IoTSec -> UCO (an unseen domain; never used for training).
 
-Inputs (the user's Advanced-Cybersecurity-OA project, set in .env):
-  OA_CYBER_DIR        folder with ontologies/iotsec.owl, ontologies/uco_rdf.xml and the vectorized CSVs whose
-                      `data_num` / `self_word` columns map the reference IDs (UCO#n, IOT#n) to class labels
-  OA_CYBER_REFERENCE  reference.csv (label_1 = UCO#n, label_2 = IOT#n)
+Inputs: the raw folder's cybersecurity/ (moved there from the Advanced-Cybersecurity-OA project on 2026-10-22):
+  ontologies/iotsec.owl, ontologies/uco_rdf.xml
+  reference.csv       label_1 = UCO#n, label_2 = IOT#n
+  id-tables/          UCO_vectorized_BERT.csv, IOT_vectorized_BERT.csv: `data_num` / `self_word` map the reference IDs
+                      (UCO#n, IOT#n) to class labels
+Without that folder, the older layout is read: OA_CYBER_DIR (the Advanced-Cybersecurity-OA folder) and
+OA_CYBER_REFERENCE (reference.csv), set in .env.
 
 Outputs in data/external/cyber/ (gitignored):
   iotsec.owl      copy of the source ontology
@@ -72,6 +75,14 @@ def _class_index(profile) -> dict[str, set[str]]:
     return index
 
 
+def label_tables(source_dir: Path) -> tuple[Path, Path]:
+    """(UCO table, IoTSec table): the raw folder's id-tables/, or the Advanced-Cybersecurity-OA project layout."""
+    if (source_dir / "id-tables").is_dir():
+        return source_dir / "id-tables" / "UCO_vectorized_BERT.csv", source_dir / "id-tables" / "IOT_vectorized_BERT.csv"
+    tables = source_dir / "cybersecurity ontology alignment-final" / "parsing ontology"
+    return tables / "UCO/vectorizing/UCO_vectorized_BERT.csv", tables / "iotsec/vectorizing/IOT_vectorized_BERT.csv"
+
+
 def convert(source_dir: Path, reference_csv: Path) -> dict:
     out = cyber_dir()
     out.mkdir(parents=True, exist_ok=True)
@@ -81,9 +92,8 @@ def convert(source_dir: Path, reference_csv: Path) -> dict:
     with atomic_open(out / "uco.owl") as f:
         f.write(WRAPPER_HEAD + body + "\n</rdf:RDF>\n")
 
-    tables = source_dir / "cybersecurity ontology alignment-final" / "parsing ontology"
-    labels = {"UCO": _labels(tables / "UCO/vectorizing/UCO_vectorized_BERT.csv"),
-              "IOT": _labels(tables / "iotsec/vectorizing/IOT_vectorized_BERT.csv")}
+    uco_table, iot_table = label_tables(source_dir)
+    labels = {"UCO": _labels(uco_table), "IOT": _labels(iot_table)}
     index = {"UCO": _class_index(OntologyParser().parse(out / "uco.owl")),
              "IOT": _class_index(OntologyParser().parse(out / "iotsec.owl"))}
 
@@ -131,10 +141,16 @@ def convert(source_dir: Path, reference_csv: Path) -> dict:
 
 
 def main() -> int:
-    source = Path(os.environ.get("OA_CYBER_DIR", "")).expanduser()
-    reference = Path(os.environ.get("OA_CYBER_REFERENCE") or source / "reference.csv").expanduser()
+    from ..paths import raw_dir
+
+    source = raw_dir() / "cybersecurity"
+    reference = source / "reference.csv"
+    if not (source / "ontologies" / "uco_rdf.xml").exists():
+        source = Path(os.environ.get("OA_CYBER_DIR", "")).expanduser()
+        reference = Path(os.environ.get("OA_CYBER_REFERENCE") or source / "reference.csv").expanduser()
     if not (source / "ontologies" / "uco_rdf.xml").exists() or not reference.exists():
-        raise SystemExit("Set OA_CYBER_DIR (Advanced-Cybersecurity-OA folder) and OA_CYBER_REFERENCE (reference.csv) in .env")
+        raise SystemExit("No cybersecurity inputs: expected <raw folder>/cybersecurity/ (ontologies/, reference.csv, "
+                         "id-tables/), or OA_CYBER_DIR and OA_CYBER_REFERENCE in .env")
     print(json.dumps(convert(source, reference), indent=1, default=list))
     return 0
 

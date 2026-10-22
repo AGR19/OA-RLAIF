@@ -1,18 +1,23 @@
 """What runs, in which order, and what the money allows.
 
-A unit is (model, task): one model aligning every class of one task. A unit either runs to the end or does not start,
-so every alignment that is reported is complete. Units run in this priority order and each one starts only if its
-projected cost fits the money left (FULL_EVAL_BUDGET_USD, default $50, minus a reserve for scoring and the upload):
+A method is a model, how it is asked, and thinking off or on:
+  grpo, sft, all_merged, sdft, base   one decision per class (the earlier evaluation's prompt, full_eval/infer.py)
+  all_merged-agent                    All merged + mini-SWE-agent: the om_agent/ harness of the local console, one
+                                      agent episode per class (full_eval/agent_run.py)
+  <method>-think                      the same with thinking on (the models were trained with thinking off)
 
-  1. GRPO (the released model) on every small task
-  2. GRPO: the complete SNOMED CT -> ICD-11 map
-  3. SFT, All merged, OPSD and base on every small task (the full comparison table)
-  4. GRPO on the three whole-ontology Bio-ML pairs (NCIT-DOID, SNOMED-FMA, SNOMED-NCIT)
-  5. the other models: SNOMED CT -> ICD-11
-  6. the other models: Bio-ML
+A unit is (method, task): one method aligning every class of one task. A unit either runs to the end or does not
+start, so every alignment that is reported is complete. Units run in this priority order and each one starts only if
+its projected cost fits the money left (FULL_EVAL_BUDGET_USD, default $100, minus a reserve for scoring and the
+upload):
 
-The projection is decisions / measured decisions-per-second + model load time, times this machine's price. Spend is
-the machine's billed time since it started (oa_rlaif.cost.Meter), so setup and downloads count too.
+  1. thinking off, all six methods: every task except Bio-ML (small tasks first, then SNOMED CT -> ICD-11)
+  2. the same with thinking on
+  3. Bio-ML (three whole-ontology pairs): thinking off, then on
+
+The projection is decisions / measured decisions-per-second of that kind of method (one decision or agent, thinking
+off or on) + load time, times this machine's price. Spend is the machine's billed time since it started
+(oa_rlaif.cost.Meter), so setup and downloads count too.
 """
 
 from __future__ import annotations
@@ -28,15 +33,48 @@ from oa_rlaif.paths import data_dir, out_dir, relative_to_raw
 
 from .tasks import GIANT, Task, tasks
 
-MODELS = ["grpo", "sft", "all_merged", "sdft", "base"]  # run order
-REPORT_ORDER = ["base", "sft", "sdft", "grpo", "all_merged"]  # row order of the earlier tables
+MODELS = ["grpo", "sft", "all_merged", "sdft", "base"]  # run order of the one-decision methods
+AGENT = "all_merged-agent"  # All merged + mini-SWE-agent (om_agent/)
+METHODS_OFF = MODELS + [AGENT]
+METHODS = METHODS_OFF + [m + "-think" for m in METHODS_OFF]
+REPORT_ORDER = ["base", "sft", "sdft", "grpo", "all_merged", AGENT]  # row order of the tables (thinking off; then on)
 LABELS = {"base": "Gemma 4 E4B (base)", "sft": "+ SFT", "sdft": "+ OPSD", "grpo": "+ OPSD → GRPO (RLAIF)",
-          "all_merged": "All merged (OPSD → GRPO + SFT)"}
+          "all_merged": "All merged (OPSD → GRPO + SFT)", AGENT: "All merged + mini-SWE-agent"}
 SMALL_ORDER = ["anatomy__mouse-human", "dh", "dh_multiling", "biodiv", "complex_om__cree-swo", "cyber__iotsec-uco",
                "icd__who-icd10-to-icd11", "multifarm"]
 GIANT_ORDER = ["icd__snomed-to-icd11", "bioml__NCIT-DOID", "bioml__SNOMED-FMA", "bioml__SNOMED-NCIT"]
-DEFAULT_RATE = float(os.environ.get("FULL_EVAL_RATE", "120"))      # decisions/s on all GPUs, until measured
+# decisions/s on all GPUs until measured, per kind of method (FULL_EVAL_RATE_<KIND>, e.g. FULL_EVAL_RATE_AGENT_THINK)
+DEFAULT_RATES = {"decide": 120.0, "decide-think": 20.0, "agent": 25.0, "agent-think": 8.0}
 DEFAULT_LOAD_S = float(os.environ.get("FULL_EVAL_LOAD_S", "150"))  # model load + warm-up, until measured
+
+
+@dataclass(frozen=True)
+class Method:
+    tag: str
+    model: str     # the weights (full_eval.models)
+    think: bool
+    agent: bool
+
+    @property
+    def kind(self) -> str:
+        return ("agent" if self.agent else "decide") + ("-think" if self.think else "")
+
+    @property
+    def base(self) -> str:
+        """The tag without thinking: the row of the tables."""
+        return self.tag.removesuffix("-think")
+
+
+def method(tag: str) -> Method:
+    think = tag.endswith("-think")
+    base = tag.removesuffix("-think")
+    agent = base.endswith("-agent")
+    return Method(tag, base.removesuffix("-agent"), think, agent)
+
+
+def label(tag: str) -> str:
+    m = method(tag)
+    return LABELS.get(m.base, m.base) + (", thinking on" if m.think else "")
 
 
 def root() -> Path:
@@ -50,9 +88,13 @@ def task_order(slugs: list[str] | None = None) -> list[Task]:
     return [by_slug[s] for s in order if not slugs or s in slugs]
 
 
-def selected_models() -> list[str]:
-    chosen = [m.strip() for m in os.environ.get("FULL_EVAL_MODELS", "").split(",") if m.strip()]
-    return [m for m in MODELS if not chosen or m in chosen]
+def selected_methods() -> list[str]:
+    """FULL_EVAL_METHODS (comma-separated tags) and FULL_EVAL_THINKING (off, on or both; default both) narrow the run."""
+    chosen = [m.strip() for m in os.environ.get("FULL_EVAL_METHODS", os.environ.get("FULL_EVAL_MODELS", "")).split(",")
+              if m.strip()]
+    thinking = os.environ.get("FULL_EVAL_THINKING", "both")
+    keep = {"off": (False,), "on": (True,)}.get(thinking, (False, True))
+    return [m for m in METHODS if (not chosen or m in chosen) and method(m).think in keep]
 
 
 def selected_tasks() -> list[str] | None:
@@ -60,18 +102,21 @@ def selected_tasks() -> list[str] | None:
     return chosen or None
 
 
-def units(models: list[str] | None = None, slugs: list[str] | None = None) -> list[tuple[str, str]]:
-    models = models or selected_models()
+def units(methods: list[str] | None = None, slugs: list[str] | None = None) -> list[tuple[str, str]]:
+    """(method, task) in priority order: thinking off on every task but Bio-ML (small tasks, then SNOMED CT ->
+    ICD-11), the same with thinking on, then Bio-ML off and on."""
+    methods = methods or selected_methods()
     present = [t.slug for t in task_order(slugs or selected_tasks())]
     small = [s for s in present if s not in GIANT]
     snomed = [s for s in present if s == "icd__snomed-to-icd11"]
     bioml = [s for s in present if s in GIANT and s != "icd__snomed-to-icd11"]
-    first, others = models[:1], models[1:]
-    order = [(m, s) for m in first for s in small + snomed]
-    order += [(m, s) for m in others for s in small]
-    order += [(m, s) for m in first for s in bioml]
-    order += [(m, s) for m in others for s in snomed]
-    order += [(m, s) for m in others for s in bioml]
+    order = []
+    for think in (False, True):
+        group = [m for m in methods if method(m).think == think]
+        order += [(m, s) for m in group for s in small]
+        order += [(m, s) for m in group for s in snomed]
+    for think in (False, True):
+        order += [(m, s) for m in methods if method(m).think == think for s in bioml]
     return order
 
 
@@ -92,7 +137,7 @@ def decisions(slug: str) -> tuple[int, bool]:
 
 @dataclass
 class Speed:
-    """Measured throughput of finished units (decisions per second on all GPUs) and model load times."""
+    """Measured throughput of finished units (decisions per second on all GPUs) per kind of method, and load times."""
     path: Path = field(default_factory=lambda: root() / "speed.json")
 
     def _read(self) -> dict:
@@ -100,7 +145,8 @@ class Speed:
 
     def record_unit(self, unit: str, n: int, seconds: float) -> None:
         data = self._read()
-        data["units"].append({"unit": unit, "decisions": n, "seconds": round(seconds, 1), "at": time.time()})
+        data["units"].append({"unit": unit, "kind": method(unit.split("/", 1)[0]).kind, "decisions": n,
+                              "seconds": round(seconds, 1), "at": time.time()})
         self.path.write_text(json.dumps(data, indent=1))
 
     def record_load(self, seconds: float) -> None:
@@ -108,10 +154,12 @@ class Speed:
         data["loads"].append(round(seconds, 1))
         self.path.write_text(json.dumps(data, indent=1))
 
-    def rate(self) -> tuple[float, str]:
-        done = [u for u in self._read()["units"] if u["decisions"] >= 2000 and u["seconds"] > 0]
+    def rate(self, kind: str = "decide") -> tuple[float, str]:
+        done = [u for u in self._read()["units"] if u.get("kind", "decide") == kind
+                and u["decisions"] >= (500 if kind.startswith("agent") else 2000) and u["seconds"] > 0]
         if not done:
-            return DEFAULT_RATE, f"assumed {DEFAULT_RATE:.0f}/s until the first unit finishes"
+            default = float(os.environ.get(f"FULL_EVAL_RATE_{kind.upper().replace('-', '_')}", DEFAULT_RATES[kind]))
+            return default, f"assumed {default:g}/s until a unit of this kind finishes"
         total = sum(u["decisions"] for u in done) / sum(u["seconds"] for u in done)
         return total, f"measured on {len(done)} unit(s)"
 
@@ -126,7 +174,7 @@ class Budget:
         from oa_rlaif.cost import Meter
 
         self.meter = Meter()
-        self.cap = float(cap if cap is not None else os.environ.get("FULL_EVAL_BUDGET_USD", "50"))
+        self.cap = float(cap if cap is not None else os.environ.get("FULL_EVAL_BUDGET_USD", "100"))
         self.reserve = float(os.environ.get("FULL_EVAL_RESERVE_USD", "3"))
         self.fake = os.environ.get("FULL_EVAL_FAKE") == "lexical"  # Mac rehearsal: $1/h from the rehearsal's start
         self.started = time.time()
@@ -155,19 +203,19 @@ class Budget:
 
 def project(unit_list: list[tuple[str, str]], budget: Budget, speed: Speed, loaded: str | None = None) -> list[dict]:
     """Greedy plan in priority order: each unit with its projected seconds and dollars, and whether it fits."""
-    rate, basis = speed.rate()
     left = budget.left()
     current = loaded
     plan = []
-    for model, slug in unit_list:
+    for tag, slug in unit_list:
         n, exact = decisions(slug)
-        seconds = n / rate + (speed.load_seconds() if model != current else 0)
+        rate, basis = speed.rate(method(tag).kind)
+        seconds = n / rate + (speed.load_seconds() if tag != current else 0)
         cost = budget.dollars(seconds)
         fits = cost <= left
         if fits:
             left -= cost
-            current = model
-        plan.append({"model": model, "task": slug, "decisions": n, "exact": exact, "seconds": round(seconds),
+            current = tag
+        plan.append({"model": tag, "task": slug, "decisions": n, "exact": exact, "seconds": round(seconds),
                      "usd": round(cost, 2), "fits": fits, "rate": round(rate, 1), "rate_basis": basis})
     return plan
 

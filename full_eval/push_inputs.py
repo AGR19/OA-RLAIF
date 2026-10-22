@@ -2,7 +2,8 @@
 
     PYTHONPATH=src:. .venv/bin/python full_eval/push_inputs.py [--dry-run]
 
-  (repo root)       the supplied 'Raw Ontology Folders', without PDFs (the DRAL-OA paper and the textbook)
+  (repo root)       the supplied 'Raw Ontology Folders', without PDFs (the DRAL-OA paper and the textbook); with
+                    --skip-raw only the folder added later, cybersecurity/ (IoTSec -> UCO)
   bio-ml/           the Bio-ML 2026 download (references, candidate lists, NCIT/DOID/FMA)
   external/cyber/   IoTSec -> UCO (zero-shot pair, built by oa_rlaif.data.cyber)
   ontology_profiles.json   the modelling-profile texts every prompt carries (as in training)
@@ -18,7 +19,7 @@ import argparse
 import json
 import sys
 
-from oa_rlaif.data.profiles import cache_dir, cache_key, is_cached
+from oa_rlaif.data.profiles import cache_key, is_cached
 from oa_rlaif.paths import bioml_dir, data_dir, raw_dir, relative_to_raw
 
 REPO = "oa-rlaif-raw"
@@ -79,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_raw:
         api.upload_large_folder(repo_id=repo, repo_type="dataset", folder_path=str(raw), private=True,
                                 ignore_patterns=IGNORE)
+    elif (raw / "cybersecurity").exists():  # added to the raw folders after the first upload
+        api.upload_folder(repo_id=repo, repo_type="dataset", folder_path=str(raw / "cybersecurity"),
+                          path_in_repo="cybersecurity", ignore_patterns=IGNORE, commit_message="cybersecurity: IoTSec -> UCO")
     api.upload_folder(repo_id=repo, repo_type="dataset", folder_path=str(bioml), path_in_repo="bio-ml",
                       ignore_patterns=IGNORE, commit_message="Bio-ML 2026 download")
     if cyber.exists():

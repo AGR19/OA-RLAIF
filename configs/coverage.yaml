@@ -19,6 +19,8 @@
 #   candidate_pool      -> Bio-ML local ranking candidate lists: must parse; used as candidate pools and ranking eval
 #   knowledge_passage   -> SDFT knowledge prompts (A4B questions, passage = privileged context)
 #   provenance          -> licences, codeowners, web assets, screenshots: recorded in DATA_CARD.md
+#   converted_source    -> input of a converter whose output the pipeline reads instead (cybersecurity/ ->
+#                          `python -m oa_rlaif.data.cyber` -> data/external/cyber/, the IoTSec -> UCO pair)
 data_bearing: [ontology, candidate_pool, gold_reference, complex_reference, trivial_reference, icd_bridge, icd_crosscheck,
                snomed_facts, snomed_mapping, snomed_history, system_output, baseline_metrics,
                knowledge_passage]
@@ -27,6 +29,12 @@ rules:
   # ---------------- papers and the datasource ----------------
   - {glob: "Ontology Matching Textbook.pdf", role: knowledge_passage, family: datasource}
   - {glob: "Deeper_and_Deeper_*.pdf", role: knowledge_passage, family: dral_oa_paper}
+
+  # ---------------- Cybersecurity (IoTSec -> UCO; moved from Advanced-Cybersecurity-OA, 2026-10-22) ----------------
+  - {glob: "cybersecurity/ontologies/*", role: converted_source, family: cyber}
+  - {glob: "cybersecurity/reference.csv", role: converted_source, family: cyber}
+  - {glob: "cybersecurity/id-tables/*.csv", role: converted_source, family: cyber}
+  - {glob: "cybersecurity/**", role: provenance, family: cyber}
 
   # ---------------- Anatomy ----------------
   - {glob: "anatomy-dataset-2/*.owl", role: ontology, family: anatomy}

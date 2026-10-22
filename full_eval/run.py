@@ -1,13 +1,14 @@
 """The full-alignment run: models, episodes, GPU workers, money guard, scoring and the report, resumable.
 
-    python -m full_eval.run            # shows the plan and what $50 buys, asks once, then runs to the end
+    python -m full_eval.run            # shows the plan and what $100 buys, asks once, then runs to the end
     python -m full_eval.run --yes      # no question
     python -m full_eval.run --plan     # only the plan
 
 In the background: the models are rebuilt in run order (full_eval.models) and the episodes are built in task order
-(full_eval.build_episodes), while the GPUs already work on what is ready. Each block of units of one model runs on all
-GPUs (one vLLM per GPU); a unit starts only if its projected cost fits the money left, and outputs/full_eval/STOP stops
-the workers between shards when the spend reaches the cap. Scoring runs on the CPU while the GPUs go on. A unit that
+(full_eval.build_episodes), while the GPUs already work on what is ready. Each block of units of one method runs on
+all GPUs: one vLLM per GPU, offline for the one-decision methods (full_eval.infer), `vllm serve` behind the
+mini-SWE-agent for the agent method (full_eval.agent_run). A unit starts only if its projected cost fits the money
+left, and outputs/full_eval/STOP stops the workers between shards when the spend reaches the cap. Scoring runs on the CPU while the GPUs go on. A unit that
 was stopped is reported as not run; the next run continues its shards.
 """
 
@@ -19,10 +20,8 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-from .schedule import (LABELS, Budget, Speed, decisions, project, replies_complete, root, selected_models, unit_done,
-                       units)
+from .schedule import Budget, Speed, decisions, label, method, project, replies_complete, root, unit_done, units
 
 PY = sys.executable
 
@@ -45,17 +44,17 @@ def background(name: str, args: list[str]) -> subprocess.Popen:
 def model_ready(tag: str) -> bool:
     from .models import ready
 
-    return os.environ.get("FULL_EVAL_FAKE") == "lexical" or ready(tag)
+    return os.environ.get("FULL_EVAL_FAKE") == "lexical" or ready(method(tag).model)
 
 
 def show_plan(plan: list[dict], budget: Budget) -> None:
     print(f"\nMoney: cap ${budget.cap:.0f}, spent so far ${budget.spent():.2f}, reserve ${budget.reserve:.0f} for scoring "
           f"and the upload; price ${budget.price:.2f}/h. Speed: {plan[0]['rate'] if plan else '?'} decisions/s "
           f"({plan[0]['rate_basis'] if plan else ''}).")
-    print(f"{'model':<11} {'task':<26} {'decisions':>10} {'hours':>6} {'$':>7}  fits")
+    print(f"{'method':<23} {'task':<26} {'decisions':>10} {'/s':>6} {'hours':>6} {'$':>7}  fits")
     for p in plan:
-        print(f"{p['model']:<11} {p['task']:<26} {p['decisions']:>10,}{'' if p['exact'] else '~'} {p['seconds'] / 3600:>6.2f} "
-              f"{p['usd']:>7.2f}  {'yes' if p['fits'] else 'NO: not run unless the measured speed is higher'}")
+        print(f"{p['model']:<23} {p['task']:<26} {p['decisions']:>10,}{'' if p['exact'] else '~'} {p['rate']:>6g} "
+              f"{p['seconds'] / 3600:>6.2f} {p['usd']:>7.2f}  {'yes' if p['fits'] else 'NO: not run unless the measured speed is higher'}")
 
 
 def save_plan(statuses: dict, budget: Budget) -> None:
@@ -79,12 +78,12 @@ def progress_line(model: str, block: list[str], budget: Budget, started: float) 
         total += sum(shards.values())
         done += sum(n for name, n in shards.items() if (folder / name.replace(".jsonl.gz", ".replies.jsonl.gz")).exists())
     rate = done / max(1.0, time.time() - started)
-    return (f"[{time.strftime('%H:%M:%S')}] {LABELS.get(model, model)}: {done:,}/{total:,} decisions "
+    return (f"[{time.strftime('%H:%M:%S')}] {label(model)}: {done:,}/{total:,} decisions "
             f"({rate:.0f}/s incl. load) · spent ${budget.spent():.2f} of ${budget.cap:.0f}")
 
 
 def run_block(model: str, block: list[str], budget: Budget, speed: Speed, ngpu: int) -> bool:
-    """All GPUs on one model for the given tasks. Returns False when the money guard stopped it."""
+    """All GPUs on one method for the given tasks. Returns False when the money guard stopped it."""
     while not model_ready(model):
         print(f"[{time.strftime('%H:%M:%S')}] waiting for model {model} (full_eval/logs/models.log)", flush=True)
         time.sleep(30)
@@ -95,10 +94,10 @@ def run_block(model: str, block: list[str], budget: Budget, speed: Speed, ngpu: 
     workers = []
     for rank in range(ngpu):
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(rank)}
-        args = [PY, "-m", "full_eval.infer", "--tag", model, "--tasks", ",".join(block), "--rank", str(rank),
-                "--world", str(ngpu)]
+        worker = "full_eval.agent_run" if method(model).agent else "full_eval.infer"
+        args = [PY, "-m", worker, "--tag", model, "--tasks", ",".join(block), "--rank", str(rank), "--world", str(ngpu)]
         if rank == 0 and model in ("grpo", "sdft"):
-            args.append("--verify-first")
+            args.append("--verify-first")  # weight check of the re-merged models, thinking off only
         log = open(root() / "logs" / f"infer_{model}_{rank}.log", "a")
         workers.append(subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, env=env))
     started = time.time()
@@ -142,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     helpers = []
     if os.environ.get("FULL_EVAL_FAKE") != "lexical":
-        order = list(dict.fromkeys(m for m, _ in todo))
+        order = list(dict.fromkeys(method(m).model for m, _ in todo))
         helpers.append(background("models", ["full_eval.models", *order]))
     helpers.append(background("episodes", ["full_eval.build_episodes"]))
     ngpu = gpu_count()
@@ -172,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
             block.append(p["task"])
             statuses[(model, p["task"])] = {"status": "running", "usd": p["usd"], "seconds": p["seconds"]}
         save_plan(statuses, budget)
-        print(f"\n[block] {LABELS.get(model, model)} on {ngpu} GPU(s): {', '.join(block)}", flush=True)
+        print(f"\n[block] {label(model)} on {ngpu} GPU(s): {', '.join(block)}", flush=True)
         finished = run_block(model, block, budget, speed, ngpu)
         loaded = model
         for slug in block:
@@ -197,7 +196,6 @@ def main(argv: list[str] | None = None) -> int:
     for h in helpers:
         if h.poll() is None:
             h.terminate()
-    subprocess.run([PY, "-m", "full_eval.variants"], check=False)
     save_plan(statuses, budget)
     subprocess.run([PY, "-m", "full_eval.report"], check=False)
     print(f"\nspent ${budget.spent():.2f} of ${budget.cap:.0f}; report: {root() / 'report.md'}")

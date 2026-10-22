@@ -1,4 +1,5 @@
-"""full_eval/: what counts as a class to align, the OAEI and Bio-ML scoring rules, the money planner and the replies."""
+"""full_eval/: what counts as a class to align, the methods and their order, the scoring rules (OAEI scores and the
+Top-k evaluation, full alignments only), the money planner, thinking replies and the agent's replies."""
 
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from full_eval import schedule, score, tasks  # noqa: E402
-from full_eval.infer import LexicalEngine  # noqa: E402
+from full_eval.infer import LexicalEngine, reply_row  # noqa: E402
 from oa_rlaif.eval.metrics import AlignmentEvaluator  # noqa: E402
+from oa_rlaif.eval.thinking import split  # noqa: E402
 from oa_rlaif.harness.prompts import decision_messages, parse_decision  # noqa: E402
 from oa_rlaif.ontology.models import Entity, Label, OntologyProfile  # noqa: E402
 
@@ -49,11 +51,27 @@ def test_deprecated_scan_reads_rdfxml_entities_and_functional_syntax(tmp_path, m
     assert tasks.deprecated_iris(ofn) == {"http://snomed.info/id/123"}
 
 
-def test_unit_order_puts_grpo_and_the_small_tasks_first():
-    order = schedule.units(["grpo", "sft"], ["anatomy__mouse-human", "dh", "icd__snomed-to-icd11", "bioml__NCIT-DOID"])
-    assert order == [("grpo", "anatomy__mouse-human"), ("grpo", "dh"), ("grpo", "icd__snomed-to-icd11"),
-                     ("sft", "anatomy__mouse-human"), ("sft", "dh"), ("grpo", "bioml__NCIT-DOID"),
-                     ("sft", "icd__snomed-to-icd11"), ("sft", "bioml__NCIT-DOID")]
+def test_unit_order_thinking_off_then_on_then_bioml():
+    order = schedule.units(["grpo", "all_merged-agent", "grpo-think"],
+                           ["anatomy__mouse-human", "dh", "icd__snomed-to-icd11", "bioml__NCIT-DOID"])
+    assert order == [("grpo", "anatomy__mouse-human"), ("grpo", "dh"), ("all_merged-agent", "anatomy__mouse-human"),
+                     ("all_merged-agent", "dh"), ("grpo", "icd__snomed-to-icd11"),
+                     ("all_merged-agent", "icd__snomed-to-icd11"),
+                     ("grpo-think", "anatomy__mouse-human"), ("grpo-think", "dh"), ("grpo-think", "icd__snomed-to-icd11"),
+                     ("grpo", "bioml__NCIT-DOID"), ("all_merged-agent", "bioml__NCIT-DOID"),
+                     ("grpo-think", "bioml__NCIT-DOID")]
+
+
+def test_methods_six_with_thinking_off_and_on(monkeypatch):
+    assert len(schedule.METHODS) == 12 and "all_merged-agent-think" in schedule.METHODS
+    m = schedule.method("all_merged-agent-think")
+    assert (m.model, m.think, m.agent, m.kind, m.base) == ("all_merged", True, True, "agent-think", "all_merged-agent")
+    assert schedule.method("grpo").kind == "decide" and schedule.label("sft-think") == "+ SFT, thinking on"
+    monkeypatch.setenv("FULL_EVAL_THINKING", "off")
+    assert schedule.selected_methods() == schedule.METHODS_OFF
+    monkeypatch.delenv("FULL_EVAL_BUDGET_USD", raising=False)
+    monkeypatch.setenv("FULL_EVAL_FAKE", "lexical")
+    assert schedule.Budget().cap == 100.0
 
 
 def test_planner_starts_only_units_that_fit_the_money(monkeypatch, tmp_path):
@@ -64,27 +82,26 @@ def test_planner_starts_only_units_that_fit_the_money(monkeypatch, tmp_path):
     budget = schedule.Budget(cap=5.0)
     budget.reserve = 1.0
     speed = schedule.Speed(path=tmp_path / "speed.json")
-    monkeypatch.setattr(speed, "rate", lambda: (100.0, "test"))
+    monkeypatch.setattr(speed, "rate", lambda kind="decide": (100.0, "test"))
     monkeypatch.setattr(speed, "load_seconds", lambda: 0.0)
     plan = schedule.project([("m", "a"), ("m", "b"), ("m", "c")], budget, speed, loaded="m")
     assert [p["fits"] for p in plan] == [True, False, True]  # $1 fits, $10 does not, $0.10 still fits after it
     assert plan[0]["usd"] == pytest.approx(1.0, abs=0.01)
 
 
-def test_heldout_view_sets_training_links_to_null():
+def test_full_alignment_scores_every_reference_link():
     reference = {("s1", "t1"), ("s2", "t2"), ("s3", "t3")}
-    predicted = {("s1", "t1"), ("s2", "t9"), ("s3", "t3")}
-    flagged = {("s1", "t1")}  # a training link: neither right nor wrong
-    s = AlignmentEvaluator().evaluate(predicted, reference, flagged=flagged)
-    assert (s["Precision"], s["Recall"], s["true_positive"], s["reference"]) == (0.5, 0.5, 1, 2)
+    predicted = {("s1", "t1"), ("s2", "t9"), ("s3", "t3"), ("s4", "t4")}  # s4 has no partner: a wrong match
+    s = AlignmentEvaluator().evaluate(predicted, reference)
+    assert (s["Precision"], s["Recall"], s["true_positive"], s["reference"]) == (0.5, 2 / 3, 2, 3)
 
 
 def test_aggregate_gives_macro_and_micro():
-    rows = [{"Precision": 1.0, "Recall": 0.5, "F-Measure": 2 / 3, "true_positive": 1, "Size": 1, "predicted_flagged": 0,
-             "reference": 2, "Recall+": None},
-            {"Precision": 0.5, "Recall": 1.0, "F-Measure": 2 / 3, "true_positive": 2, "Size": 4, "predicted_flagged": 0,
-             "reference": 2, "Recall+": 0.5}]
-    a = score.aggregate(rows)
+    rows = [{"Precision": 1.0, "Recall": 0.5, "F-Measure": 2 / 3, "true_positive": 1, "Size": 1, "reference": 2,
+             "Recall+": None},
+            {"Precision": 0.5, "Recall": 1.0, "F-Measure": 2 / 3, "true_positive": 2, "Size": 4, "reference": 2,
+             "Recall+": 0.5}]
+    a = score.oaei_aggregate(rows)
     assert a["macro"]["F-Measure"] == pytest.approx(2 / 3)
     assert a["micro"]["Precision"] == pytest.approx(3 / 5) and a["micro"]["Recall"] == pytest.approx(3 / 4)
     assert a["macro_recall_plus"] == 0.5
@@ -101,32 +118,80 @@ def test_decide_threshold_none_and_invalid_replies():
     sure = "THOUGHT: x\n```mswea_bash_command\necho COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && om submit C2 --relation = --confidence 0.9\n```"
     unsure = sure.replace("0.9", "0.4")
     none = sure.replace("C2", "NONE")
-    r = score.decide(ep, sure)
+    r = score.decide(ep, {"reply": sure})
     assert (r["decision"], r["targets"], r["target_labels"]) == ("match", ["http://h#2"], ["Heart"])
     assert [a.pair for a in score.picks_of(r)] == [("http://m#1", "http://h#2")]
-    assert score.picks_of(score.decide(ep, unsure)) == []  # below the 0.5 threshold: no correspondence
-    assert score.decide(ep, none)["decision"] == "NONE"
-    assert score.decide(ep, "I think C2")["decision"] == "invalid"
+    assert score.picks_of(score.decide(ep, {"reply": unsure})) == []  # below the 0.5 threshold: no correspondence
+    assert score.decide(ep, {"reply": none})["decision"] == "NONE"
+    assert score.decide(ep, {"reply": "I think C2"})["decision"] == "invalid"
+
+
+def test_agent_rows_are_scored_from_the_submission():
+    ep = {**episode("Liver", "Heart", "Heart valve"), "ranking": ["http://h#3", "http://h#2", "http://h#1"]}
+    row = {"decision": "match", "targets": ["http://h#2"], "relation": "=", "confidence": 0.9, "exit": "Submitted",
+           "model_calls": 2, "extra_commands": 1, "format_errors": 0, "prompt_tokens": 9000, "completion_tokens": 80,
+           "thinking_chars": 0, "answer_in_thinking": 0, "turns": [{"answer": "a", "thinking": "", "finish_reason": "stop"}],
+           "seconds": 3.0, "thought": "THOUGHT: heart"}
+    r = score.decide(ep, row)
+    assert (r["decision"], r["targets"], r["target_labels"]) == ("match", ["http://h#2"], ["Heart"])
+    assert score.ranked_answers(r) == ["http://h#2", "http://h#3", "http://h#1"]  # own choice, then retrieval order
+    lost = score.decide(ep, {**row, "decision": "no submission", "targets": [], "exit": "LimitsExceeded"})
+    assert (lost["decision"], lost["error"]) == ("invalid", "LimitsExceeded")
+    b = score.behaviour([r, lost], "all_merged-agent")
+    assert b["model_calls_per_class"] == 2 and b["invalid"] == 0.5 and b["exit_statuses"] == {"Submitted": 1, "LimitsExceeded": 1}
+
+
+def test_thinking_reply_is_split_and_scored_from_its_answer():
+    ep = episode("Liver", "Heart")
+    answer = "THOUGHT: x\n```mswea_bash_command\necho COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && om submit C2 --relation = --confidence 0.9\n```"
+    row = reply_row(ep, f"<|channel>thought\nheart matches<channel|>{answer}", 100, 20, "stop", think=True)
+    assert (row["reply"], row["thinking"], row["answer_in_thinking"]) == (answer, "heart matches", False)
+    inside = reply_row(ep, f"<|channel>thought\n{answer}", 100, 20, "length", think=True)  # never closed
+    assert inside["reply"] == answer and inside["answer_in_thinking"]
+    r = score.decide(ep, inside)
+    assert r["targets"] == ["http://h#2"] and r["stats"]["truncated"] and r["stats"]["answer_in_thinking"]
+    assert split("", reasoning=answer)["answer"] == answer  # Ollama: the thinking comes in its own field
 
 
 def test_lexical_rehearsal_engine_answers_in_the_trained_format():
     ep = episode("Liver", "Heart", "Heart valve")
-    (reply, _, _), = LexicalEngine().chat([decision_messages(ep)])
+    (reply, *_), = LexicalEngine().chat([decision_messages(ep)])
     d = parse_decision(reply, ep)
     assert d.valid and d.choice == "http://h#2"
+    (raw, *_), = LexicalEngine(think=True).chat([decision_messages(ep)])
+    assert parse_decision(reply_row(ep, raw, 0, 0, "stop", think=True)["reply"], ep).choice == "http://h#2"
 
 
 def test_every_task_family_of_the_earlier_report_is_present():
     families = {t.column for t in tasks.tasks()}
     assert {"Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "ICD-10→11", "SNOMED→ICD-11"} <= families
+    assert set(tasks.COLUMNS) >= {"Cybersecurity", "Zero-shot"}
 
 
-def test_top1_follows_clf_py_precision_and_recall_at_1():
-    """clf.py: only classes with a reference partner count; P@1 = hits / min(1, partners), R@1 = hits / partners."""
+def test_topk_follows_clf_py_precision_and_recall_at_k():
+    """clf.py: only classes with a reference partner count; P@k = hits / min(k, partners), R@k = hits / partners."""
     partners = {"a": {"x"}, "b": {"y", "z"}, "c": {"w"}}
-    choices = {"a": ["x"], "b": ["z"], "c": [], "d": ["q"]}  # c answered NONE; d has no partner: never scored
-    s = AlignmentEvaluator().top1(choices, partners, trivial={("a", "x")})
-    assert s["classes_scored"] == 3 and s["hits"] == 2 and s["Size"] == 2
-    assert s["Precision"] == pytest.approx(2 / 3)                    # (1 + 1 + 0) / 3
-    assert s["Recall"] == pytest.approx((1 + 0.5 + 0) / 3)           # b has two partners: 1/2
-    assert s["Recall+"] == pytest.approx(1 / 2)                      # a is trivial; b hit, c missed
+    rankings = {"a": ["x", "q"], "b": ["z", "q", "y"], "c": [], "d": ["q"]}  # c: NONE; d has no partner: never scored
+    s = AlignmentEvaluator().topk(rankings, partners)
+    assert s["method"] == "Top-k evaluation (k = 1, 3, 5)" and s["classes_scored"] == 3
+    one, three = s["k"][1], s["k"][3]
+    assert one["Precision"] == pytest.approx(2 / 3) and one["Recall"] == pytest.approx((1 + 0.5 + 0) / 3)
+    assert three["Precision"] == pytest.approx((1 + 1 + 0) / 3) and three["Recall"] == pytest.approx((1 + 1 + 0) / 3)
+    assert one["F-measure"] == pytest.approx(2 * one["Precision"] * one["Recall"] / (one["Precision"] + one["Recall"]))
+
+
+def test_report_cells_and_the_agent_difference():
+    from full_eval import report
+
+    def unit(f, top1):
+        k = {str(k): {"Precision": top1, "Recall": top1, "F-measure": top1} for k in (1, 3, 5)}
+        return {"anatomy__mouse-human": {"pairs": {"anatomy/mouse-human": {
+            "zero_shot": False, "oaei": {"F-Measure": f}, "topk": {"classes_scored": 10, "k": k}}}}}
+
+    results = {"all_merged": unit(0.80, 0.90), "all_merged-agent": unit(0.85, 0.92)}
+    assert report.oaei_value(results["all_merged"], "Anatomy") == pytest.approx(80.0)
+    assert report.oaei_value(results["all_merged"], "DH") is None  # not run: "–", never estimated
+    rows = dict(report.table7(results))
+    assert rows["OAEI F-measure, thinking off"][0] == pytest.approx(5.0)
+    assert rows["Top-k F-measure@1, thinking off"][0] == pytest.approx(2.0)
+    assert rows["OAEI F-measure, thinking on"][0] is None

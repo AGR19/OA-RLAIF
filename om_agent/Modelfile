@@ -1,0 +1,7 @@
+# OA-RLAIF "all merged" (base Gemma 4 E4B + OPSD + GRPO + SFT), imported from the weights in model/all_merged.
+# run_matching.sh imports it once:  ollama create oa-rlaif-all-merged --quantize int8 -f Modelfile
+FROM ./cache/import
+# cache/import = model/all_merged + the 54 shared-layer tensors Ollama requires (fix_kv_shared.py)
+PARAMETER temperature 0
+PARAMETER num_ctx 16384
+PARAMETER stop "<turn|>"

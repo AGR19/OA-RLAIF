@@ -1,7 +1,7 @@
 """The full-alignment tasks and what "every class" means for each.
 
-Tasks are the same dataset families as the earlier held-out evaluation (outputs/eval/report.md, Table 1), now as whole
-alignments: Anatomy, Bio-ML (three whole-ontology pairs), MultiFarm, DH, DH multilingual, Biodiv, the zero-shot pairs,
+Tasks are the same dataset families as the earlier evaluation (outputs/eval/report.md, Table 1), now as whole
+alignments (full alignments only; no held-out view): Anatomy, Bio-ML (three whole-ontology pairs), MultiFarm, DH, DH multilingual, Biodiv, the zero-shot pairs,
 the WHO ICD-10 -> ICD-11 crosswalk, and the complete SNOMED CT -> ICD-11 map.
 
 Every class of a task's source ontology is decided by the model (C# or NONE), except entities that are not classes of
@@ -28,10 +28,12 @@ META_PREFIXES = (
     "http://www.w3.org/2001/XMLSchema#", "http://protege.stanford.edu/plugins/owl/protege#",
 )
 OBSOLETE = re.compile(r"^\s*obsolete[\s_:]", re.I)
-EQUIVALENCE = {"=", "<=", ">=", ""}  # Bio-ML's <= / >= are equivalences on the repaired basis (as in training)
+IGNORED_RELATIONS = {"?", "%"}  # unknown / incompatible reference cells are not links
+EQUIVALENCE = {"=", "<=", ">=", ""}  # OAEI scoring; Bio-ML's <= / >= are equivalences on the repaired basis
 
 # Report columns, in the order of the earlier Table 1.
-COLUMNS = ["Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "ICD-10→11", "SNOMED→ICD-11", "Zero-shot"]
+COLUMNS = ["Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "Cybersecurity", "ICD-10→11", "SNOMED→ICD-11",
+           "Zero-shot"]
 # The two very large tasks (whole-ontology pairs); everything else is "small" (minutes per model).
 GIANT = {"bioml__NCIT-DOID", "bioml__SNOMED-FMA", "bioml__SNOMED-NCIT", "icd__snomed-to-icd11"}
 # ICD's own scope for SNOMED CT: the SNOMED CT -> ICD-10 map covers these three hierarchies (clinical finding, event,
@@ -79,9 +81,10 @@ def tasks(families: set[str] | None = None) -> list[Task]:
     for family, column in (("multifarm", "MultiFarm"), ("dh", "DH"), ("dh_multiling", "DH-ML"), ("biodiv", "Biodiv")):
         if by_family.get(family):
             out.append(Task(family, family, column, by_family[family]))
-    for family in ("complex_om", "cyber"):
-        for s in by_family.get(family, []):
-            out.append(Task(family + "__" + s.pair_id.split("/")[-1], family, "Zero-shot", [s]))
+    for s in by_family.get("cyber", []):  # IoTSec -> UCO (raw folder cybersecurity/); never trained on
+        out.append(Task("cyber__" + s.pair_id.split("/")[-1], "cyber", "Cybersecurity", [s]))
+    for s in by_family.get("complex_om", []):
+        out.append(Task("complex_om__" + s.pair_id.split("/")[-1], "complex_om", "Zero-shot", [s]))
     out.append(Task("icd__who-icd10-to-icd11", "icd10", "ICD-10→11", []))
     out.append(Task("icd__snomed-to-icd11", "snomed_icd11", "SNOMED→ICD-11", [], giant=True))
     return [t for t in out if families is None or t.family in families or t.slug in families]
@@ -190,28 +193,23 @@ def scope(profile, deprecated: set[str]) -> list[str]:
 
 
 # ---- references ---------------------------------------------------------------------------------------------------------
-def reference_pairs(spec: PairSpec, source, target) -> set[tuple[str, str]]:
-    """Atomic equivalence correspondences of the pair's reference(s), oriented source -> target. Non-equivalence
-    relations are left out, as OAEI does for Anatomy and DH ("only equivalence relationships")."""
+def reference_pairs(spec: PairSpec, source, target, equivalence_only: bool = False) -> set[tuple[str, str]]:
+    """Atomic links of the pair's reference(s), oriented source -> target. The Top-k evaluation counts every relation
+    (clf.py builds link_labels from every reference row); the OAEI scoring (equivalence_only) keeps equivalences only,
+    as OAEI does for Anatomy and DH. Unknown (?) and incompatible (%) cells are never links."""
     from oa_rlaif.ontology.alignment_io import orient, read_alignment
 
     pairs = set()
     for ref in spec.references:
         for a in read_alignment(ref):
-            if not a.atomic or a.relation not in EQUIVALENCE:
+            if not a.atomic or a.relation in IGNORED_RELATIONS:
+                continue
+            if equivalence_only and a.relation not in EQUIVALENCE:
                 continue
             a = orient(a, source, target)
             if a.status != "unresolved_endpoint":
                 pairs.add(a.pair)
     return pairs
-
-
-def split_of() -> dict[str, str]:
-    """Training split of every entity that has a gold link (data/splits/components.tsv): 'train' or 'test'."""
-    from oa_rlaif.io import read_tsv
-
-    path = data_dir() / "splits" / "components.tsv"
-    return {row["iri"]: row["split"] for row in read_tsv(path)} if path.exists() else {}
 
 
 def unit_name(model: str, task: Task) -> str:

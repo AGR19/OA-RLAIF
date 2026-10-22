@@ -3,6 +3,9 @@ src/training/eval_metrics.py; tested there for parity with the Bio-ML scoring ki
 
 from __future__ import annotations
 
+TOP_K = (1, 3, 5)
+TOP_K_NAME = "Top-k evaluation (k = 1, 3, 5)"  # Precision@k, Recall@k, F-measure@k; the name in tables and charts
+
 RESULT_COLUMNS = [
     "Matcher",
     "Runtime",
@@ -67,32 +70,29 @@ class AlignmentEvaluator:
             **{f"hits_at_{k}": sum(v) / len(v) if v else 0.0 for k, v in hits.items()},
         }
 
-    def top1(self, choices, partners, trivial=None, matcher="oa-rlaif-e4b", runtime=None):
-        """DRAL-OA's clf.py regime (precision_at_k / recall_at_k at k = 1), the scoring the user asked for.
+    def topk(self, rankings, partners, ks=TOP_K):
+        """Top-k evaluation (k = 1, 3, 5): Precision@k, Recall@k and F-measure@k, the per-class top-k precision and
+        recall of the DRAL-OA evaluation code (clf.py precision_at_k / recall_at_k).
 
-        Only source classes that have a partner in the reference are scored (clf.py's link_labels); classes without
-        one are not evaluated. `found` is the model's own top-1 choice for the class (its first submitted target;
-        NONE or an invalid reply = nothing found). Per class: precision@1 = hits / min(1, partners) and
-        recall@1 = hits / partners; both are averaged over the scored classes (macro), as clf.py does.
-        choices: source -> ordered list of chosen targets; partners: source -> set of reference targets;
-        trivial: set of (source, target) reference pairs whose names match (Recall+@1 = hit rate on the classes
-        none of whose reference pairs is trivial)."""
-        precision, recall, hits, answered, plus = [], [], 0, 0, []
-        for source, targets in partners.items():
-            found = list(choices.get(source, []))[:1]
-            n = sum(1 for t in targets if t in found)
-            precision.append(n / min(1, len(targets)))
-            recall.append(n / len(targets))
-            hits += n > 0
-            answered += bool(found)
-            if trivial is not None and not any((source, t) in trivial for t in targets):
-                plus.append(n > 0)
-        p = sum(precision) / len(precision) if precision else 0.0
-        r = sum(recall) / len(recall) if recall else 0.0
-        return {"Matcher": matcher, "Runtime": runtime, "Size": answered, "Precision": p,
-                "F-Measure": 2 * p * r / (p + r) if p + r else 0.0, "Recall": r,
-                "Recall+": sum(plus) / len(plus) if plus else None, "classes_scored": len(partners), "hits": hits,
-                "regime": "clf.py top-1 (reference classes only, model's own choice)"}
+        Only source classes that have a partner in the reference are scored (partners: class -> set of reference
+        targets); `rankings` gives each class's ranked answers (the model's own choice first; NONE or an invalid reply
+        = an empty list). Per class c, with F_c the top k and R_c its partners:
+            Precision@k = |F_c ∩ R_c| / min(k, |R_c|)        Recall@k = |F_c ∩ R_c| / |R_c|
+        each averaged over the scored classes; F-measure@k = 2PR / (P + R) of the two averages."""
+        out = {"method": TOP_K_NAME, "classes_scored": len(partners), "k": {}}
+        for k in ks:
+            precision, recall, hits = [], [], 0
+            for source, targets in partners.items():
+                found = list(rankings.get(source, []))[:k]
+                n = sum(1 for t in targets if t in found)
+                precision.append(n / min(k, len(targets)))
+                recall.append(n / len(targets))
+                hits += n > 0
+            p = sum(precision) / len(precision) if precision else 0.0
+            r = sum(recall) / len(recall) if recall else 0.0
+            out["k"][k] = {"Precision": p, "Recall": r, "F-measure": 2 * p * r / (p + r) if p + r else 0.0,
+                           "classes_with_a_hit": hits}
+        return out
 
     def candidate_recall(self, candidates, reference):
         gold = set(reference)

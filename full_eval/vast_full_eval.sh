@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# ONE COMMAND on a Vast.ai GPU instance (4 x B200 planned): the full-alignment evaluation of every model on every
-# dataset, scored the OAEI way, within FULL_EVAL_BUDGET_USD (default $50, setup included). Run it inside tmux.
+# ONE COMMAND on a Vast.ai GPU instance (4 x B200 planned): the full-alignment evaluation of every method (five models
+# and All merged + mini-SWE-agent, thinking off and on) on every dataset, scored against the whole references with the
+# OAEI scores and the Top-k evaluation (k = 1, 3, 5), within FULL_EVAL_BUDGET_USD (default $100, setup included).
+# Full alignments only: no held-out view. Run it inside tmux.
 #
 #   full_eval/vast_full_eval.sh            setup, inputs, plan (asks once), run, report, upload; resumable
 #   full_eval/vast_full_eval.sh --plan     only show the plan and what the money buys
 #
-# Steps: 1 setup (price, packages, Python env)  2 Hugging Face login  3 inputs from the private repos
-#        4 the run (models rebuilt, episodes built, GPUs, scoring, variants, report)  5 upload of every output to the
+# Steps: 1 setup (price, packages, Python env, agent sandbox)  2 Hugging Face login  3 inputs from the private repos
+#        4 the run (models rebuilt, episodes built, GPUs, scoring, report)  5 upload of every output to the
 #        private dataset <you>/oa-rlaif-full-eval. Logs: outputs/full_eval/logs/. Run the same command again after any
 #        stop: finished work is kept.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export FULL_EVAL_BUDGET_USD="${FULL_EVAL_BUDGET_USD:-50}"
+export FULL_EVAL_BUDGET_USD="${FULL_EVAL_BUDGET_USD:-100}"
 mkdir -p outputs/full_eval/logs
 ngpu="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)"
 gpu_gb="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i 0 2>/dev/null | awk '{ print int($1 / 1024) }' || true)"

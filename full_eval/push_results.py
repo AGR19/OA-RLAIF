@@ -2,12 +2,12 @@
 
     python -m full_eval.push_results [--dry-run] [--episodes]
 
-  report.md / .tex / .json, plan.json, speed.json, verify_*.json
-  results/<model>/<task>/   scores.json, decisions.tsv.gz (every class: decision, target, label, confidence, THOUGHT),
+  report.md / .tex / .json, figures/ (Top-k charts), plan.json, speed.json, verify_*.json (weight check)
+  results/<method>/<task>/  scores.json, decisions.tsv.gz (every class: decision, target, label, confidence, THOUGHT),
                             pairs/<pair>/alignment.rdf (OAEI) and alignment.sssom.tsv; for SNOMED CT -> ICD-11 the
                             complete map (icd11_snomed_complete.sssom.tsv, snomed_to_icd11.tsv.gz)
-  results/<variant>/        the two matcher variants (full_eval/variants.py)
-  replies/<model>/<task>/   the raw model output for every class
+  replies/<method>/<task>/  the model's output for every class (with thinking on: the thinking text; agent: its
+                            commands and every model turn)
   episodes/*/manifest.json, gold.json; logs/
   --episodes also uploads the prompts (episode shards; large, and rebuilt identically by full_eval.build_episodes).
 Nothing goes into the existing repos. Private (checked after creation): SNOMED CT-derived content is inside.
@@ -28,12 +28,14 @@ tags: [ontology-matching, oa-rlaif, full-alignment, oaei, private]
 ---
 # oa-rlaif-full-eval (private)
 
-Full-alignment evaluation of the OA-RLAIF models (base Gemma 4 E4B, SFT, OPSD, OPSD -> GRPO, All merged): every class
-of every dataset aligned, scored the OAEI way (github.com/AGR19/OA-RLAIF, `full_eval/`). Start with `report.md`.
+Full-alignment evaluation of the OA-RLAIF models (base Gemma 4 E4B, SFT, OPSD, OPSD -> GRPO, All merged, and All
+merged + mini-SWE-agent), each with thinking off and on: every class of every dataset aligned, scored against the whole
+reference with the OAEI scores and the Top-k evaluation (k = 1, 3, 5); full alignments only, no held-out view
+(github.com/AGR19/OA-RLAIF, `full_eval/`). Start with `report.md`.
 **Licensing:** contains SNOMED CT-derived mappings (affiliate licence) and UMLS-derived Bio-ML references. Private
 research use only; never make this repo public.
 """
-PATTERNS = ["report.*", "plan.json", "speed.json", "verify_*.json", "results/**", "replies/**",
+PATTERNS = ["report.*", "figures/**", "plan.json", "speed.json", "verify_*.json", "results/**", "replies/**",
             "episodes/*/manifest.json", "episodes/*/gold.json", "logs/**", "progress/**"]
 
 

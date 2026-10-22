@@ -19,6 +19,8 @@ from ..io import read_yaml, write_tsv
 from ..paths import ROOT, bioml_dir, config_dir, out_dir, papers_dir, raw_dir
 
 IGNORED_NAMES = {".DS_Store"}
+# tool bookkeeping inside the data folders, not data: huggingface_hub's upload_large_folder writes .cache/huggingface/
+IGNORED_DIRS = {(".cache", "huggingface")}
 
 
 def glob_regex(pattern: str) -> re.Pattern:
@@ -71,6 +73,8 @@ def classify(relative: str, rules) -> Rule | None:
 def scan(root: Path, rules, source: str):
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.name not in IGNORED_NAMES and not path.name.endswith(".partial"):
+            if path.relative_to(root).parts[:2] in IGNORED_DIRS:
+                continue
             relative = path.relative_to(root).as_posix()
             rule = classify(relative, rules)
             yield {

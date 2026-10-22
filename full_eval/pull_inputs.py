@@ -5,10 +5,10 @@
   <you>/oa-rlaif-raw (dataset)          -> data/full_eval_inputs/  (raw ontology folders at its root, bio-ml/, profiles/)
        not downloaded: Complex-OM except hydrography (5.9 GB, not evaluated), the SNOMED RF2 Full release (2.4 GB; the
        Snapshot is used), ICD-10-CM
-  <you>/oa-rlaif-grpo (dataset)         -> data/eval/heldout_anatomy.jsonl, data/splits/ (the 80/20 split)
   <you>/oa-rlaif-icd-triangulation      -> data/icd/triangulated.jsonl (the ICD-10-composed SNOMED -> ICD-11 links)
-  <you>/oa-rlaif-results                -> outputs/full_eval/earlier/<model>/heldout_anatomy.predictions.jsonl
-                                           (the earlier predictions the rebuilt models are checked against)
+  <you>/oa-rlaif-grpo (dataset)         -> data/eval/heldout_anatomy.jsonl     } only for the weight check of the
+  <you>/oa-rlaif-results                -> outputs/full_eval/earlier/<model>/ } rebuilt OPSD and GRPO merges (the
+                                           earlier run's replies); never scored or reported as an evaluation
 It also writes OA_RAW_DIR and OA_BIOML_DIR to .env and puts the IoTSec -> UCO pair and the profile texts where the
 code expects them.
 """
@@ -26,7 +26,7 @@ RAW_PATTERNS = [
     "biodiv/*", "complex-OM-benchmark-main/hydrography/**", "ICD-10 to SNOWMEDCT/icd11.owl",
     "ICD-10 to SNOWMEDCT/snomed-ct-us-*.owl", "ICD-10 to SNOWMEDCT/ICD 10 to 11 Mapings/**",
     "ICD-10 to SNOWMEDCT/SnomedCT_*/Snapshot/**", "ICD-10 to SNOWMEDCT/SnomedCT_*/*.json",
-    "bio-ml/**", "external/cyber/**", "profiles/**", "ontology_profiles.json",
+    "cybersecurity/**", "bio-ml/**", "external/cyber/**", "profiles/**", "ontology_profiles.json",
 ]
 
 
@@ -52,9 +52,9 @@ def main() -> int:
     if (inputs / "external" / "cyber").exists():
         shutil.copytree(inputs / "external" / "cyber", cyber, dirs_exist_ok=True)
     shutil.copy2(inputs / "ontology_profiles.json", data_dir() / "ontology_profiles.json")
-    print(f"[inputs] {ns}/oa-rlaif-grpo: eval/heldout_anatomy.jsonl, splits/", flush=True)
+    print(f"[inputs] {ns}/oa-rlaif-grpo: eval/heldout_anatomy.jsonl (weight check only)", flush=True)
     snapshot_download(f"{ns}/oa-rlaif-grpo", repo_type="dataset", local_dir=str(data_dir()),
-                      allow_patterns=["eval/heldout_anatomy.jsonl", "splits/*"])
+                      allow_patterns=["eval/heldout_anatomy.jsonl"])
     print(f"[inputs] {ns}/oa-rlaif-icd-triangulation: icd/triangulated.jsonl", flush=True)
     snapshot_download(f"{ns}/oa-rlaif-icd-triangulation", repo_type="dataset", local_dir=str(data_dir()),
                       allow_patterns=["icd/triangulated.jsonl", "icd/triangulation_stats.json"])
@@ -66,7 +66,7 @@ def main() -> int:
             print(f"[inputs] earlier predictions: {Path(path).relative_to(earlier)}", flush=True)
         except Exception as error:  # noqa: BLE001 (the check is then reported as not done)
             print(f"[inputs] no earlier predictions for {tag}: {type(error).__name__}", flush=True)
-    missing = [p for p in ("splits/components.tsv", "icd/triangulated.jsonl", "eval/heldout_anatomy.jsonl")
+    missing = [p for p in ("icd/triangulated.jsonl",)
                if not (data_dir() / p).exists()]
     if missing:
         raise SystemExit(f"[inputs] missing after download: {missing}")

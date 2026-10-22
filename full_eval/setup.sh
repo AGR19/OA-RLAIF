@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Vast.ai GPU box, once (full_eval/vast_full_eval.sh runs it): the price of this machine, system packages,
-# /dev/shm and disk checks, and the pinned Python environment. Unlike scripts/cloud_setup.sh: no Docker sandbox,
-# no 26B judge weights and no llama.cpp (the full evaluation needs none of them).
+# /dev/shm and disk checks, the pinned Python environment and the agent's user sandbox (the unprivileged user
+# oa-agent: Vast.ai containers cannot run Docker). Unlike scripts/cloud_setup.sh: no Docker, no 26B judge weights and
+# no llama.cpp (the full evaluation needs none of them).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
@@ -39,4 +40,7 @@ command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 [ -x .venv/bin/python ] || uv venv .venv --python 3.11
 uv pip sync --python .venv/bin/python requirements-train.txt
-say "done: /dev/shm ${shm_gb} GB, free disk ${free_gb} GB, HF cache $HF_HOME"
+# the mini-SWE-agent method runs every agent command as oa-agent in a task folder outside the repo (self-tested)
+OA_AGENT_ENV=user scripts/sandbox_setup.sh --start
+sed -i '/^OA_AGENT_ENV=/d' .env; echo "OA_AGENT_ENV=user" >> .env
+say "done: /dev/shm ${shm_gb} GB, free disk ${free_gb} GB, HF cache $HF_HOME, agent sandbox: user oa-agent"

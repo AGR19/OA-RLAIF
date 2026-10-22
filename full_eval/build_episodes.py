@@ -29,7 +29,7 @@ from pathlib import Path
 
 from oa_rlaif.paths import out_dir
 
-from .tasks import GIANT, SNOMED_ICD_ROOTS, Task, deprecated_iris, is_meta, load_profile_any, scope, tasks
+from .tasks import GIANT, SNOMED_ICD_ROOTS, Task, deprecated_iris, is_meta, load_profile_any, scope
 
 SHARD = 2000
 _W: dict = {}  # worker state, set in the parent before forking (shared copy-on-write)
@@ -86,13 +86,15 @@ def _pair_chunk(args) -> tuple[str, int]:
             ranked = w["semantic"].get(iri, [])
         else:
             ranked = w["generator"].candidates(source.entities[iri], k=w["k"] * 4)
-        cands = [c for c, _ in ranked if c in w["targets"] and kind_of(target, c) == kind][: w["k"]]
-        random.Random(episode_id(spec.pair_id, iri, "full")).shuffle(cands)  # position carries no signal
+        ranking = [c for c, _ in ranked if c in w["targets"] and kind_of(target, c) == kind][: w["k"]]
+        cands = list(ranking)
+        random.Random(episode_id(spec.pair_id, iri, "full")).shuffle(cands)  # shown shuffled: position carries no signal
         out.append({"id": episode_id(spec.pair_id, iri, "full"), "family": spec.family, "pair_id": spec.pair_id,
                     "relation": "=", "source_iri": iri,
                     "source_card": card(source, iri, spec.source_lang, w["kids_s"]),
                     "source_profile": w["profiles"][0], "target_profile": w["profiles"][1],
-                    "candidates": [{"iri": c, "card": card(target, c, spec.target_lang, w["kids_t"])} for c in cands]})
+                    "candidates": [{"iri": c, "card": card(target, c, spec.target_lang, w["kids_t"])} for c in cands],
+                    "ranking": ranking})  # retrieval order (not shown to the model): Top-3/Top-5 after its choice
     write_shard(Path(shard_path), out)
     return shard_path, len(out)
 
@@ -159,6 +161,41 @@ def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> di
 
 
 # ---- ICD tasks ------------------------------------------------------------------------------------------------------
+def _icd_chunk(args) -> list[dict]:
+    """Worker: data/icd_triangulation._episode_chunk for whole-map episodes (no answer ever inserted), keeping the
+    retrieval order as `ranking`. The shown order is shuffled with the same seed as in training."""
+    import hashlib
+
+    from oa_rlaif.data import icd_triangulation as icd
+    from oa_rlaif.data.cards import card
+    from oa_rlaif.retrieval.candidates import CandidateGenerator
+
+    icd11, ancestors, items, k = args
+    generator = CandidateGenerator(icd11)
+    out = []
+    for pair_id, _kind, entity, parent, source_card, _gold, _split, extra in items:
+        ranking = icd.icd_candidates(generator, ancestors, entity, parent, k)
+        key = hashlib.sha1(f"{pair_id}|{entity.iri}".encode()).hexdigest()
+        order = list(ranking)
+        random.Random(key).shuffle(order)
+        out.append({"id": key[:16], "family": "icd", "pair_id": pair_id, "relation": extra.get("relation", "classified_under"),
+                    "source_iri": entity.iri, "source_card": source_card,
+                    "candidates": [{"iri": c, "card": card(icd11, c)} for c in order], "ranking": ranking})
+    return out
+
+
+def _icd_episodes(icd11, ancestors, items: list, k: int, workers: int) -> list[dict]:
+    from concurrent.futures import ProcessPoolExecutor
+
+    size = max(1, len(items) // (workers * 4))
+    chunks = [items[i:i + size] for i in range(0, len(items), size)]
+    episodes: list[dict] = []
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        for result in pool.map(_icd_chunk, [(icd11, ancestors, chunk, k) for chunk in chunks]):
+            episodes.extend(result)
+    return episodes
+
+
 def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
     """WHO ICD-10 -> ICD-11 (every ICD-10 code in the WHO tables) or SNOMED CT -> ICD-11 (every active concept in
     ICD's scope), with the training-time ICD-11 retrieval (data/icd_triangulation.py) and its source cards."""
@@ -225,11 +262,11 @@ def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
                 "active_concepts": len(active), "sources": len(items)}
     if limit:
         items = items[:limit]
-    episodes = icd._parallel_episodes(icd11, ancestors, items, k=20, seed=13, workers=build_workers())
+    episodes = _icd_episodes(icd11, ancestors, items, k=20, workers=build_workers())
     profiles = pair_profiles.get(pair_id, ("", ""))
     folder = episodes_dir(task)
     manifest: dict = {"task": task.slug, "pairs": {pair_id: info}, "shards": {}}
-    keep = ("id", "family", "pair_id", "relation", "source_iri", "source_card", "candidates")
+    keep = ("id", "family", "pair_id", "relation", "source_iri", "source_card", "candidates", "ranking")
     for c, i in enumerate(range(0, len(episodes), SHARD)):
         chunk = [{**{k: e[k] for k in keep}, "source_profile": profiles[0], "target_profile": profiles[1]}
                  for e in episodes[i:i + SHARD]]

@@ -34,3 +34,12 @@ tools/literature/verify_cache.json
 tools/owl_verify/target/
 *.egg-info/
 .DS_Store
+
+# om_agent/ runtime folders (weights, Ollama store, ontologies, outputs, caches)
+/om_agent/model/
+/om_agent/ollama-models/
+/om_agent/ontologies/
+/om_agent/output/
+/om_agent/scores/
+/om_agent/logs/
+/om_agent/cache/

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# The agent's scoring skill: Top-k evaluation (k = 1, 3, 5), Precision@k / Recall@k / F-measure@k. See om_score.py.
+#   ./om-score output/s2      ./om-score output/s1 output/s2 --reference ontologies/reference.rdf
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# The OA-RLAIF repo: this folder's parent when it is om_agent/ in the repo, else OA_RLAIF_DIR, else the Mac copy.
+if [ -z "${OA_RLAIF_DIR:-}" ]; then
+  if [ -d "$HERE/../src/oa_rlaif" ]; then OA_RLAIF_DIR="$(cd "$HERE/.." && pwd)"; else OA_RLAIF_DIR="$HOME/Desktop/oa-sft-sm-1/RLAIF"; fi
+fi
+export OA_RLAIF_DIR
+RLAIF="$OA_RLAIF_DIR"
+exec "$RLAIF/.venv/bin/python" "$HERE/om_score.py" "$@"
