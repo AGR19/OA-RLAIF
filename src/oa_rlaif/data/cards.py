@@ -16,8 +16,9 @@ def display(text: str) -> str:
 
 
 def names(entity: Entity, language: str = "") -> tuple[str, list[str]]:
-    """Preferred name (language first, then English, then any) and up to 5 distinct synonyms."""
-    labels = sorted(entity.labels, key=lambda x: (
+    """Preferred name (language first, then English, then any) and up to 5 distinct synonyms. Blank labels are
+    ignored (IoTSec writes empty rdfs:label elements); with no other label the name is the IRI's local name."""
+    labels = sorted((x for x in entity.labels if x.text.strip()), key=lambda x: (
         x.language != language if language else False, x.language not in ("en", ""),
         x.kind in SYNONYM_KINDS, x.kind != "prefLabel", x.text))
     if not labels:

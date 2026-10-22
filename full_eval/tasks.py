@@ -193,10 +193,13 @@ def scope(profile, deprecated: set[str]) -> list[str]:
 
 
 # ---- references ---------------------------------------------------------------------------------------------------------
-def reference_pairs(spec: PairSpec, source, target, equivalence_only: bool = False) -> set[tuple[str, str]]:
+def reference_pairs(spec: PairSpec, source, target, equivalence_only: bool = False,
+                    keep_unresolved: bool = False) -> set[tuple[str, str]]:
     """Atomic links of the pair's reference(s), oriented source -> target. The Top-k evaluation counts every relation
     (clf.py builds link_labels from every reference row); the OAEI scoring (equivalence_only) keeps equivalences only,
-    as OAEI does for Anatomy and DH. Unknown (?) and incompatible (%) cells are never links."""
+    as OAEI does for Anatomy and DH. Unknown (?) and incompatible (%) cells are never links.
+    keep_unresolved (OAEI scoring): links whose endpoints are not classes of the two ontologies (FLOPO -> PTO cites
+    PATO and PO classes) stay in, as written; no matcher can find them, and MELT counts them in the reference."""
     from oa_rlaif.ontology.alignment_io import orient, read_alignment
 
     pairs = set()
@@ -206,8 +209,10 @@ def reference_pairs(spec: PairSpec, source, target, equivalence_only: bool = Fal
                 continue
             if equivalence_only and a.relation not in EQUIVALENCE:
                 continue
-            a = orient(a, source, target)
-            if a.status != "unresolved_endpoint":
+            oriented = orient(a, source, target)
+            if oriented.status != "unresolved_endpoint":
+                pairs.add(oriented.pair)
+            elif keep_unresolved:
                 pairs.add(a.pair)
     return pairs
 

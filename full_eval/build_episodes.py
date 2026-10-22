@@ -190,15 +190,29 @@ def _icd_episodes(icd11, ancestors, items: list, k: int, workers: int) -> list[d
     size = max(1, len(items) // (workers * 4))
     chunks = [items[i:i + size] for i in range(0, len(items), size)]
     episodes: list[dict] = []
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("fork")) as pool:  # as build_pairs
         for result in pool.map(_icd_chunk, [(icd11, ancestors, chunk, k) for chunk in chunks]):
             episodes.extend(result)
     return episodes
 
 
+def foundation_targets(table_info: dict, owl) -> dict:
+    """Every entity of the ICD-11 Foundation (icd11.owl) as a possible target: a full alignment to ICD-11, not only
+    the entities the WHO ICD-10 <-> ICD-11 tables name. Table entries keep their MMS code and title."""
+    from oa_rlaif.data.cards import names
+
+    out = {}
+    for uri, e in owl.entities.items():
+        if e.declared and uri.startswith("http://id.who.int/icd/entity/"):
+            out[uri] = table_info.get(uri) or {"code": next(iter(sorted(e.codes)), ""), "title": names(e)[0], "chapter": ""}
+    return out
+
+
 def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
     """WHO ICD-10 -> ICD-11 (every ICD-10 code in the WHO tables) or SNOMED CT -> ICD-11 (every active concept in
-    ICD's scope), with the training-time ICD-11 retrieval (data/icd_triangulation.py) and its source cards."""
+    ICD's scope), with the training-time ICD-11 retrieval (data/icd_triangulation.py) and its source cards. The
+    targets are every ICD-11 Foundation entity (FULL_EVAL_ICD11_TARGETS=foundation, the default; 71,175 in icd11.owl);
+    `tables` keeps the training-time set, the entities the WHO tables name (48,844)."""
     from oa_rlaif.data import icd_triangulation as icd
     from oa_rlaif.data.cards import card
     from oa_rlaif.ontology.models import Entity, Label
@@ -206,6 +220,9 @@ def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
     counts: dict = defaultdict(int)
     leg_b, icd10_title, icd11_info = icd.read_who(counts)
     owl = load_profile_any(icd.icd_dir() / "icd11.owl")
+    table_targets = len(icd11_info)
+    if os.environ.get("FULL_EVAL_ICD11_TARGETS", "foundation") == "foundation":
+        icd11_info = foundation_targets(icd11_info, owl)
     icd11 = icd._icd11_profile(icd11_info, owl)
     ancestors = icd._ancestors(icd11_info, owl, icd.EXPANSION["depth"])
     items, gold, info = [], {}, {}
@@ -260,6 +277,8 @@ def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
         info = {"source": "SNOMED CT US 2026-03 RF2, active concepts", "scope": "all active concepts" if all_scope else
                 "ICD's scope: descendants of " + ", ".join(SNOMED_ICD_ROOTS.values()),
                 "active_concepts": len(active), "sources": len(items)}
+    info.update(targets="every ICD-11 Foundation entity" if len(icd11_info) > table_targets else
+                "the ICD-11 entities the WHO tables name", target_entities=len(icd11_info))
     if limit:
         items = items[:limit]
     episodes = _icd_episodes(icd11, ancestors, items, k=20, workers=build_workers())

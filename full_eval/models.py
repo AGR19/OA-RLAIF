@@ -21,7 +21,10 @@ from pathlib import Path
 from oa_rlaif.paths import out_dir
 
 BASE = "google/gemma-4-E4B-it"
-WEIGHTS = ["*.json", "*.safetensors", "*.jinja", "tokenizer*", "*.model"]
+# the model files only: "*.json" would also match the eval/ and report/ files kept in the All combined repo
+WEIGHTS = ["config.json", "generation_config.json", "processor_config.json", "preprocessor_config.json",
+           "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json", "tokenizer.model", "chat_template.jinja",
+           "model.safetensors", "model-*.safetensors", "model.safetensors.index.json"]
 SOURCES = {
     "base": ("hub", BASE, None),
     "sdft": ("merge", "oa-rlaif-e4b-opsd-weights", "base"),

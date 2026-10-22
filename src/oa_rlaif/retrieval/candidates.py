@@ -22,8 +22,9 @@ def normalize(value):
 
 
 def label_texts(entity) -> list[str]:
-    """Labels, or the IRI local name when an entity has none (e.g. UCO): cards already show it, retrieval must too."""
-    texts = [label.text for label in entity.labels or []]
+    """Labels, or the IRI local name when an entity has none (e.g. UCO) or only blank ones (IoTSec writes empty
+    rdfs:label elements): cards already show it, retrieval must too."""
+    texts = [label.text for label in entity.labels or [] if label.text.strip()]
     if not texts:
         texts = [entity.iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1]]
     return texts

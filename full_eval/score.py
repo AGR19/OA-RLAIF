@@ -13,8 +13,9 @@ trained on.)
    extraction by confidence (oa_rlaif.ontology.alignment_io.select_equivalences). R = the whole reference. Only
    equivalence correspondences count (OAEI Anatomy and DH say so); vocabulary correspondences such as
    oboInOwl#Synonym = oboInOwl#Synonym are removed. A reference without any equivalence (IoTSec -> UCO: every link is
-   'related') is used with all its links, and A then keeps every relation. Recall+ = recall on the non-trivial
-   references (OAEI's trivial.rdf for Anatomy; elsewhere the links whose two classes share a normalised label).
+   'related') is used with all its links, and A then keeps every relation. Reference links that cite classes of
+   neither ontology (FLOPO -> PTO: 14 PATO and PO classes) stay in R, as MELT reads the file. Recall+ = recall on the
+   non-trivial references: OAEI's Anatomy measure (its trivial.rdf); no other track defines it ("–").
    Datasets with several pairs: the mean over pairs (macro) and the pooled counts (micro). Bio-ML: only its train and
    valid references are public (the organisers keep the test part), so recall is over the public references and
    precision is a lower bound.
@@ -210,21 +211,20 @@ class PairScorer:
     """OAEI scores of one pair's whole alignment against its whole reference."""
 
     def __init__(self, spec):
-        from oa_rlaif.eval.align import string_equiv
         from oa_rlaif.ontology.alignment_io import read_alignment
 
         self.spec = spec
         self.source, self.target = load_profile_any(spec.source), load_profile_any(spec.target)
         keep = lambda pairs: {p for p in pairs if not is_meta(p[0]) and not is_meta(p[1])}  # noqa: E731
-        self.all_links = keep(reference_pairs(spec, self.source, self.target))
-        equivalences = keep(reference_pairs(spec, self.source, self.target, equivalence_only=True))
-        self.any_relation = not equivalences and bool(self.all_links)  # e.g. IoTSec -> UCO: every link 'related'
-        self.reference = self.all_links if self.any_relation else equivalences
-        string_pairs = keep(string_equiv(self.source, self.target))
-        if spec.trivial and spec.trivial.exists():
-            self.trivial = {a.pair for a in read_alignment(spec.trivial) if a.atomic} & self.reference
-        else:
-            self.trivial = string_pairs & self.reference
+        self.all_links = keep(reference_pairs(spec, self.source, self.target))  # Top-k: links between the two ontologies
+        whole = keep(reference_pairs(spec, self.source, self.target, keep_unresolved=True))
+        equivalences = keep(reference_pairs(spec, self.source, self.target, equivalence_only=True, keep_unresolved=True))
+        self.any_relation = not equivalences and bool(whole)  # e.g. IoTSec -> UCO: every link 'related'
+        self.reference = whole if self.any_relation else equivalences  # OAEI: the whole reference, as MELT reads it
+        self.unresolved = len(self.reference - self.all_links)
+        # Recall+ is OAEI's Anatomy measure, defined by its trivial.rdf; no other track defines it, so it is "–" there
+        self.trivial = ({a.pair for a in read_alignment(spec.trivial) if a.atomic} & self.reference
+                        if spec.trivial and spec.trivial.exists() else None)
         self.zero_shot = spec.pair_id in zero_shot_pairs()
 
     def partners(self) -> dict:
@@ -249,8 +249,12 @@ def score_pairs(tag: str, task: Task, by_pair: dict[str, list[dict]], out: Path)
         aligned = {r["source_iri"] for r in records}
         pairs[spec.pair_id] = {
             "zero_shot": scorer.zero_shot, "sources": len(records), "reference_links": len(scorer.reference),
+            "reference_links_outside_the_ontologies": scorer.unresolved,
             "reference_relations": "all (no equivalences in the reference)" if scorer.any_relation else "equivalence",
             "reference_classes": len(partners), "reference_classes_not_aligned": len(set(partners) - aligned),
+            # share of reference classes whose partner was among the candidates at all: no method can do better
+            "retrieval_ceiling": sum(bool(set(r["candidates"]) & partners[r["source_iri"]]) for r in records
+                                     if r["source_iri"] in partners) / max(1, len(partners)),
             "decisions": {k: sum(r["decision"] == k for r in records) for k in ("match", "NONE", "invalid")},
             "oaei": scorer.oaei(alignment), "topk": topk_of(records, partners)}
         folder = out / "pairs" / spec.pair_id.replace("/", "__")

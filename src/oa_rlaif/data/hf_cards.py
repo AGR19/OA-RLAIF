@@ -210,17 +210,19 @@ Use thinking off (`enable_thinking=False`), as in training, and temperature 0.""
 
 ANATOMY = """## Measured result: whole Anatomy alignment (mouse → human)
 
-Every mouse class aligned, scored against the whole OAEI reference (OAEI form). From the earlier evaluation
-(`oa-rlaif-heldout-eval-results`, `report.md` Table 3, and `oa-rlaif-e4b-all-combined-model-safetensors/report/`):
+All combined as a mini-SWE-agent (the code repo's `om_agent` console; this model imported into Ollama at int8;
+thinking on; 40 candidates per class): every one of the 2,737 mouse classes aligned, then scored against the OAEI
+Anatomy reference with DRAL-OA's clf.py top-1 (only the classes that have a partner in the reference are scored; the
+model's own choice is a hit when it is a partner).
 
-| Matcher | Size | Precision | F-measure | Recall | Recall+ |
+*Scores against the reference*
+
+| Scoring | Size | Precision | F-Measure | Recall | Recall+ |
 |---|---:|---:|---:|---:|---:|
-| OA-RLAIF E4B, base + OPSD + GRPO | 1,498 | 0.885 | 0.879 | 0.874 | 0.777 |
-| All combined (OPSD → GRPO + SFT) | 1,458 | 0.874 | 0.857 | 0.841 | 0.703 |
-| DRAL-OA (OAEI 2025, official) | – | 0.830 | 0.828 | 0.827 | – |
+| clf.py top-1 (1,497 of 1,497 reference classes) | 1,496 | 0.941 | 0.937 | 0.934 | 0.863 |
 
-The models were trained on part of this reference (the 80/20 split), which OAEI rules do not allow for an official
-entry. The full-alignment evaluation of every model on every dataset is in `oa-rlaif-full-eval-results`."""
+The model was trained on part of this reference (the 80/20 split). The full-alignment evaluation of every model on
+every dataset is in `oa-rlaif-full-eval-results`."""
 
 
 def model_card(name: str) -> str:
@@ -317,8 +319,7 @@ Converted from `oa-rlaif-e4b-all-combined-model-safetensors` on Hugging Face Job
     }[name]
     grpo_inside = name in ("oa-rlaif-e4b-grpo-weights", "oa-rlaif-e4b-opsd-grpo-model-gguf",
                            "oa-rlaif-e4b-all-combined-model-safetensors", "oa-rlaif-e4b-all-combined-model-gguf")
-    measured = name in ("oa-rlaif-e4b-opsd-grpo-model-gguf", "oa-rlaif-e4b-grpo-weights",
-                        "oa-rlaif-e4b-all-combined-model-safetensors", "oa-rlaif-e4b-all-combined-model-gguf")
+    measured = name in ("oa-rlaif-e4b-all-combined-model-safetensors", "oa-rlaif-e4b-all-combined-model-gguf")
     parts = [front(meta), f"# {name}", "", f"{line} {kind}", "",
              "OA-RLAIF aligns ontologies: for each class of a source ontology it picks the corresponding class of a "
              "target ontology among retrieved candidates, or NONE. Base model: Gemma 4 E4B. Code: " + CODE + ".", "",

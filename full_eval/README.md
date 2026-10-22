@@ -16,6 +16,27 @@ each method, and every alignment is scored against the whole reference. There is
 | ICD-10 → ICD-11 | every WHO ICD-10 code in the WHO tables | ≈ 12,600 |
 | **SNOMED CT → ICD-11 (complete map)** | every active SNOMED CT concept in ICD's scope (clinical finding, event, situation; `FULL_EVAL_SNOMED_SCOPE=all` for every concept) | ≈ 130,000 |
 
+## Directions (checked 2026-10-22)
+
+Every task aligns the source ontology to the target ontology in the direction of its official reference file
+(`entity1` → `entity2`, or Bio-ML's `SrcEntity` → `TgtEntity`), the direction MELT and the OAEI organisers use. A
+check over every pair (`orient` in `oa_rlaif.ontology.alignment_io`) found:
+
+| Task | Source → target | Reference links as written | Notes |
+|---|---|---:|---|
+| Anatomy | mouse (MA) → human (NCI) | 1,516 of 1,516 | reference `entity1` = `mouse.owl#…`, `entity2` = `human.owl#…` |
+| Bio-ML | NCIT → DOID, SNOMED CT → FMA, SNOMED CT → NCIT | 3,792; 3,776 (+4 unknown); 20,123 (+24 unknown) | `SrcEntity`/`TgtEntity`; SNOMED CT from our US 2026-09 OWL (Bio-ML pins 2026-03-01): 28 concepts not in it |
+| MultiFarm | o1 in l1 → o2 in l2 (`cmt-confOf-fr-ar`: cmt in French → confOf in Arabic), 1,125 pairs | 35,127 (+87 flipped, +182 unknown) | `cmt-cmt-fr-ar.rdf` is written Arabic → French (flipped when read); 16 Arabic–French files name 182 entities that are in no ontology file (a defect of the 2015 test set) |
+| DH, DH-ML | `source.rdf` → `target.rdf` (8 + 10 pairs) | all | |
+| Biodiv | ENVO → SWEET, FLOPO → PTO | 666; 231 (+14 unknown) | 5 ENVO sources are obsolete classes (not aligned, so they count as misses); FLOPO → PTO cites 14 PATO and PO classes |
+| Cybersecurity | IoTSec → UCO | 69 of 69 | all links 'related'; IoTSec writes empty labels, so names come from the IRIs |
+| Zero-shot | hydrography cree → SWO | 15 simple (+32 complex) | Cree names share no letters with SWO's English names: retrieval finds no partner (ceiling 0) |
+| ICD-10 → ICD-11 | every WHO ICD-10 code → ICD-11 category | WHO `10To11` tables | |
+| SNOMED CT → ICD-11 | every active concept in ICD's scope → ICD-11 category (`classified_under`) | no reference; silver links composed through ICD-10 | direction and relation follow the SNOMED International / WHO pilot (Fung et al. 2024, doi:10.1093/jamia/ocae143): SNOMED CT → ICD-11 is the statistical use case, where a specific concept goes to a broader category; only 32% of the pilot's concepts had an exact precoordinated match |
+
+"Unknown" links name classes of neither ontology: no matcher can find them, and MELT counts them in the reference,
+so the OAEI scores keep them (the Top-k evaluation uses the links between the two ontologies).
+
 ## Methods
 
 Six methods, each run with **thinking off and thinking on** (the models were trained and evaluated with thinking off):
@@ -94,7 +115,7 @@ zero-shot pairs and IoTSec → UCO were never trained on. The report says so.
 R = |A∩R|/|R|, F = 2PR/(P+R), with A the method's whole alignment (matches with confidence ≥ 0.5, greedy 1:1 by
 confidence) and R the whole reference. Equivalences only (OAEI Anatomy and DH say so); vocabulary correspondences such
 as `oboInOwl#Synonym = oboInOwl#Synonym` are removed. IoTSec → UCO has only 'related' links, so all its links count.
-**Recall+** = recall on non-trivial references (OAEI's `trivial.rdf` for Anatomy; normalised label equality elsewhere).
+Reference links that cite classes of neither ontology (FLOPO → PTO cites 14 PATO and PO classes) stay in R, as MELT reads the file. **Recall+** = recall on non-trivial references: OAEI's Anatomy measure (its `trivial.rdf`); no other track defines it, so it shows “–” there.
 Several pairs: mean over pairs (macro) and pooled counts (micro). **Bio-ML 2026**: the organisers keep the test
 references, so recall is over the public train and valid references and precision is a lower bound; `alignment.rdf` is
 the submission file. Coherence (OAEI's Pellet check) is not computed.

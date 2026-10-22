@@ -195,3 +195,15 @@ def test_report_cells_and_the_agent_difference():
     assert rows["OAEI F-measure, thinking off"][0] == pytest.approx(5.0)
     assert rows["Top-k F-measure@1, thinking off"][0] == pytest.approx(2.0)
     assert rows["OAEI F-measure, thinking on"][0] is None
+
+
+def test_blank_labels_fall_back_to_the_iri_name():
+    """IoTSec writes empty rdfs:label elements: cards and retrieval must use the IRI's local name instead."""
+    from oa_rlaif.data.cards import names
+    from oa_rlaif.retrieval.candidates import label_texts
+
+    e = entity("http://iotsec#BlockCipher")
+    e.labels.add(Label("", "en", "label"))
+    assert names(e)[0] == "BlockCipher" and label_texts(e) == ["BlockCipher"]
+    e.labels.add(Label("block cipher", "en", "label"))
+    assert names(e)[0] == "block cipher" and label_texts(e) == ["block cipher"]

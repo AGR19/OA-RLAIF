@@ -135,12 +135,13 @@ def table2(results: dict) -> list:
                 p_, r_ = (tp / size if size else 0.0), (tp / ref if ref else 0.0)
                 rows.append((f"{t.slug} (pooled over {len(pooled)} pairs) · {label(tag)}",
                              [s.get("runtime_s"), size, p_, 2 * p_ * r_ / (p_ + r_) if p_ + r_ else 0.0, r_,
-                              mean([p["Recall+"] for p in pooled]), "N/A"]))
+                              mean([p["Recall+"] for p in pooled]),
+                              mean([p.get("retrieval_ceiling") for p in s["pairs"].values()]), "N/A"]))
                 continue
             for pair_id, p in sorted(s["pairs"].items()):
                 f = p["oaei"]
                 rows.append((f"{pair_id} · {label(tag)}", [s.get("runtime_s"), f["Size"], f["Precision"], f["F-Measure"],
-                                                         f["Recall"], f["Recall+"], "N/A"]))
+                                                         f["Recall"], f["Recall+"], p.get("retrieval_ceiling"), "N/A"]))
     return rows
 
 
@@ -320,11 +321,12 @@ def build() -> dict:
                      "×100 with the strong ICD-10-composed links (silver, no reference exists).", header,
                      table1(results), pct),
         "t2": render("Table 2. OAEI rows per pair (MultiFarm and DH-ML pooled). Size = mappings in alignment.rdf; Runtime "
-                     "= inference seconds on all GPUs; Coherent not computed. Bio-ML: public references only, so "
-                     "precision is a lower bound.",
-                     ["Runtime (s)", "Size", "Precision", "F-Measure", "Recall", "Recall+", "Coherent"], table2(results),
-                     ["{}", "{:,}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{}"],
-                     higher=[None, None, True, True, True, True, None]),
+                     "= inference seconds on all GPUs; Recall+ only where OAEI defines it (Anatomy); Ceiling = share "
+                     "of reference classes whose partner was among the retrieved candidates (no method can exceed it); "
+                     "Coherent not computed. Bio-ML: public references only, so precision is a lower bound.",
+                     ["Runtime (s)", "Size", "Precision", "F-Measure", "Recall", "Recall+", "Ceiling", "Coherent"],
+                     table2(results), ["{}", "{:,}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{}"],
+                     higher=[None, None, True, True, True, True, None, None]),
         "t3": render("Table 3. Anatomy (mouse → human), whole alignment, beside the published systems. The published "
                      "systems were not trained on the reference; our models were trained on part of it.",
                      ["Precision", "F-Measure", "Recall", "Recall+"], table3(results), "{:.3f}"),
@@ -378,7 +380,13 @@ def build() -> dict:
              "IoTSec → UCO: the reference has only 'related' links, so all its links count. Bio-ML: its test references "
              "are kept by the organisers; the alignment.rdf files are submission-ready._",
              "_The agent is never given a reference: its task folder holds the public episode only, and the references "
-             "are read from the raw folders for scoring only._"]
+             "are read from the raw folders for scoring only._",
+             "_Directions follow each reference file (README: Directions). Reference links that name classes of "
+             "neither ontology stay in the OAEI reference, as MELT reads the files: MultiFarm (182 links in 16 "
+             "Arabic–French files of the 2015 test set), FLOPO → PTO (14 PATO and PO classes), Bio-ML SNOMED pairs "
+             "(28 concepts not in our SNOMED CT release). Hydrography cree → SWO: retrieval finds no partner (Ceiling "
+             "column), so no method can score there. SNOMED CT → ICD-11 is a classification (classified under), the "
+             "statistical use case of the SNOMED International / WHO pilot (Fung et al. 2024)._"]
     if verify:
         notes.append("_Weight check of the rebuilt models (not an evaluation): same decision as the earlier run's "
                      "replies: " + "; ".join(f"{k}: {v['same_decision']} of {v['checked']}" if v.get("checked")
