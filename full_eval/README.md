@@ -4,17 +4,26 @@ The earlier evaluation (`outputs/eval/report.md`, Table 1) scored **held-out dec
 each with a candidate list. This folder scores **full alignments only**: every class of every dataset is aligned by
 each method, and every alignment is scored against the whole reference. There is no held-out view.
 
-| Task | Source → target | Classes aligned (per method) |
-|---|---|---:|
-| Anatomy | mouse → human | 2,737 |
-| Bio-ML 2026 (whole ontologies) | NCIT → DOID, SNOMED CT → FMA, SNOMED CT → NCIT | ≈ 994,000 |
-| MultiFarm (2015 test set) | 1,125 cross-lingual pairs | ≈ 119,000 |
-| DH, DH multilingual | 8 + 10 pairs | ≈ 23,000 |
-| Biodiv | ENVO → SWEET, FLOPO → PTO (zero-shot) | ≈ 30,000 |
-| Cybersecurity | IoTSec → UCO (raw folder `cybersecurity/`; never trained on) | small |
-| Zero-shot | Hydrography cree → SWO (+ FLOPO → PTO, DH tadirah → UNESCO) | small |
-| ICD-10 → ICD-11 | every WHO ICD-10 code in the WHO tables | ≈ 12,600 |
-| **SNOMED CT → ICD-11 (complete map)** | every active SNOMED CT concept in ICD's scope (clinical finding, event, situation; `FULL_EVAL_SNOMED_SCOPE=all` for every concept) | ≈ 130,000 |
+| Task | Source → target | Pairs | Source entities aligned (per method) | Target entities | Reference links |
+|---|---|---:|---:|---:|---:|
+| Anatomy | mouse (MA) → human (NCI) | 1 | 2,737 | 3,298 | 1,516 |
+| Bio-ML | NCIT → DOID | 1 | 206,475 | 12,193 | 3,792 |
+| Bio-ML | SNOMED CT → FMA | 1 | 390,809 | 104,888 | 3,780 (3,776) |
+| Bio-ML | SNOMED CT → NCIT | 1 | 390,809 | 206,475 | 20,147 (20,123) |
+| MultiFarm (2015 test set) | ontology in language 1 → ontology in language 2 | 1,125 | 119,081 | 74–182 | 35,394 (35,214) |
+| DH | `source.rdf` → `target.rdf` (1 pair zero-shot) | 8 | 4,729 | 68–800 | 168 |
+| DH multilingual | iDAI → PACTOLS, by language | 10 | 18,093 | 56–68 | 98 |
+| Biodiv | ENVO → SWEET | 1 | 6,593 | 4,884 | 663 |
+| Biodiv (zero-shot) | FLOPO → PTO | 1 | 23,236 | 1,503 | 244 (230) |
+| Cybersecurity (zero-shot) | IoTSec → UCO | 1 | 251 | 206 | 69 |
+| Zero-shot | hydrography Cree → SWO | 1 | 100 | 105 | 15 (+32 complex) |
+| ICD-10 → ICD-11 | every WHO ICD-10 code (11,243 categories, 1,058 modified categories, 274 blocks, 22 chapters) → ICD-11 Foundation entity | 1 | 12,597 | 71,175 | 16,555 (WHO tables) |
+| **SNOMED CT → ICD-11 (complete map)** | every active concept of Clinical finding, Situation and Event (the scope of the official SNOMED CT → ICD-10 map; `FULL_EVAL_SNOMED_SCOPE=all` for every concept) → ICD-11 Foundation entity | 1 | 141,182 | 71,175 | none (231,690 composed silver links) |
+| **Total** | | 1,153 | 1,316,692 | | |
+
+Entities = declared classes and properties, without vocabulary, placeholder and deprecated entities. Reference links in
+parentheses: the links whose two entities are in the two ontologies (the Top-k evaluation uses these; the OAEI scores
+use all). 12 methods × 1,316,692 decisions ≈ 15.8 million decisions for the complete evaluation.
 
 ## Directions (checked 2026-10-22)
 
