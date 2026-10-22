@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# ONE COMMAND on a Vast.ai GPU instance (4 x B200 planned): the full-alignment evaluation of every method (five models
-# and All merged + mini-SWE-agent, thinking off and on) on every dataset, scored against the whole references with the
-# OAEI scores and the Top-k evaluation (k = 1, 3, 5), within FULL_EVAL_BUDGET_USD (default $100, setup included).
-# Full alignments only: no held-out view. Run it inside tmux.
+# ONE COMMAND on a Vast.ai GPU instance (4 x B300 planned): the Top-k evaluation (k = 1, 3, 5) of the five models
+# (base, + SFT, + OPSD, + OPSD -> GRPO, All merged; thinking off) and All merged + mini-SWE-agent (thinking on) on every
+# dataset: every source class with a partner in the reference (no held-out view), and the complete SNOMED CT -> ICD-11
+# map of ICD's scope; within FULL_EVAL_BUDGET_USD (default $425, setup included; expected ~$363, ~15 h at $24/h).
+# FULL_EVAL_SCOPE=all aligns every class (needed only for OAEI scores). Run it inside tmux.
 #
 #   full_eval/vast_full_eval.sh            setup, inputs, plan (asks once), run, report, upload; resumable
 #   full_eval/vast_full_eval.sh --plan     only show the plan and what the money buys
@@ -13,13 +14,13 @@
 #        stop: finished work is kept.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export FULL_EVAL_BUDGET_USD="${FULL_EVAL_BUDGET_USD:-100}"
+export FULL_EVAL_BUDGET_USD="${FULL_EVAL_BUDGET_USD:-425}"
 mkdir -p outputs/full_eval/logs
 ngpu="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)"
 gpu_gb="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i 0 2>/dev/null | awk '{ print int($1 / 1024) }' || true)"
 if [ "${ngpu:-0}" -lt 1 ] || [ "${gpu_gb:-0}" -lt 40 ]; then
   echo "This machine shows ${ngpu:-0} GPU(s) with ${gpu_gb:-0} GB each; the evaluation needs GPUs with >= 40 GB"
-  echo "(planned: 4 x B200). Nothing was installed."
+  echo "(planned: 4 x B300). Nothing was installed."
   exit 1
 fi
 echo "[full-eval] ${ngpu} GPU(s), ${gpu_gb} GB each; cap \$${FULL_EVAL_BUDGET_USD} (machine time from its start, setup included)"

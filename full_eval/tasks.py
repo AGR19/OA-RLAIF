@@ -4,16 +4,23 @@ Tasks are the same dataset families as the earlier evaluation (outputs/eval/repo
 alignments (full alignments only; no held-out view): Anatomy, Bio-ML (three whole-ontology pairs), MultiFarm, DH, DH multilingual, Biodiv, the zero-shot pairs,
 the WHO ICD-10 -> ICD-11 crosswalk, and the complete SNOMED CT -> ICD-11 map.
 
-Every class of a task's source ontology is decided by the model (C# or NONE), except entities that are not classes of
-the ontology itself (owl:Thing, oboInOwl / OWL / RDF / SKOS vocabulary, OBO relation placeholders such as
-UNDEFINED_part_of) and deprecated classes (owl:deprecated true, or an 'obsolete' label). OAEI removes the same
-vocabulary correspondences before scoring, and Bio-ML drops correspondences with a deprecated endpoint.
+Which source classes the model decides (C# or NONE) is FULL_EVAL_SCOPE:
+  reference (default)  the classes the Top-k evaluation scores: every source class with a partner in the reference
+                       (reference_classes), all of them, no held-out view. SNOMED CT -> ICD-11 has no reference and
+                       stays the complete map of ICD's scope; ICD-10 -> ICD-11 runs every WHO code (each has a target).
+  all                  every class of the source ontology (the OAEI scores of the whole alignment need this).
+Never decided: entities that are not classes of the ontology itself (owl:Thing, oboInOwl / OWL / RDF / SKOS
+vocabulary, OBO relation placeholders such as UNDEFINED_part_of) and deprecated classes (owl:deprecated true, or an
+'obsolete' label). OAEI removes the same vocabulary correspondences before scoring, and Bio-ML drops correspondences
+with a deprecated endpoint.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -232,6 +239,25 @@ def reference_pairs(spec: PairSpec, source, target, equivalence_only: bool = Fal
             elif keep_unresolved:
                 pairs.add(a.pair)
     return pairs
+
+
+def eval_scope() -> str:
+    """FULL_EVAL_SCOPE: 'reference' (default; the classes the Top-k evaluation scores) or 'all' (every class)."""
+    value = os.environ.get("FULL_EVAL_SCOPE", "reference")
+    if value not in ("reference", "all"):
+        raise SystemExit(f"FULL_EVAL_SCOPE must be 'reference' or 'all', not {value!r}")
+    return value
+
+
+def reference_classes(spec: PairSpec, source, target) -> dict[str, set[str]]:
+    """Source class -> its reference partners: the classes the Top-k evaluation scores. Every relation counts (as in
+    clf.py), only links between the two ontologies, no vocabulary entities. The episode builder runs these classes
+    and the scorer scores them, so both use this one rule."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for s, t in reference_pairs(spec, source, target):
+        if not is_meta(s) and not is_meta(t):
+            out[s].add(t)
+    return dict(out)
 
 
 def unit_name(model: str, task: Task) -> str:

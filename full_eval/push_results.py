@@ -3,9 +3,10 @@
     python -m full_eval.push_results [--dry-run] [--episodes]
 
   report.md / .tex / .json, figures/ (Top-k charts), plan.json, speed.json, verify_*.json (weight check)
-  results/<method>/<task>/  scores.json, decisions.tsv.gz (every class: decision, target, label, confidence, THOUGHT),
-                            pairs/<pair>/alignment.rdf (OAEI) and alignment.sssom.tsv; for SNOMED CT -> ICD-11 the
-                            complete map (icd11_snomed_complete.sssom.tsv, snomed_to_icd11.tsv.gz)
+  results/<task>/<method folder>/  scores.json, decisions.tsv.gz (every class run: decision, target, label, confidence,
+                            THOUGHT), pairs/<pair>/alignment.rdf (OAEI) and alignment.sssom.tsv, one file per method
+                            and pair; for SNOMED CT -> ICD-11 the complete map (icd11_snomed_complete.sssom.tsv,
+                            snomed_to_icd11.tsv.gz)
   replies/<method>/<task>/  the model's output for every class (with thinking on: the thinking text; agent: its
                             commands and every model turn)
   episodes/*/manifest.json, gold.json; logs/
@@ -24,14 +25,16 @@ REPO = "oa-rlaif-full-eval-results"
 CARD = """---
 license: other
 license_name: mixed-private
-tags: [ontology-matching, oa-rlaif, full-alignment, oaei, private]
+tags: [ontology-matching, oa-rlaif, top-k-evaluation, private]
 ---
 # oa-rlaif-full-eval-results (private)
 
-Full-alignment evaluation of the OA-RLAIF models (base Gemma 4 E4B, SFT, OPSD, OPSD -> GRPO, All merged, and All
-merged + mini-SWE-agent), each with thinking off and on: every class of every dataset aligned, scored against the whole
-reference with the OAEI scores and the Top-k evaluation (k = 1, 3, 5); full alignments only, no held-out view
-(github.com/AGR19/OA-RLAIF, `full_eval/`). Start with `report.md`.
+Full evaluation of the OA-RLAIF models (github.com/AGR19/OA-RLAIF, `full_eval/`): base Gemma 4 E4B, + SFT, + OPSD,
++ OPSD -> GRPO and All merged with thinking off, and All merged + mini-SWE-agent with thinking on. Scored with the
+Top-k evaluation (k = 1, 3, 5; DRAL-OA's clf.py formula) on every source class that has a partner in the reference (no
+held-out view), and the complete SNOMED CT -> ICD-11 map of ICD's scope. Results are sorted by dataset, then
+method; one alignment file per method and pair:
+`results/<task>/<method folder>/pairs/<pair>/alignment.rdf` (e.g. `results/anatomy__mouse-human/4-opsd-grpo/`) (OAEI format) and `alignment.sssom.tsv`. Start with `report.md`.
 **Licensing:** contains SNOMED CT-derived mappings (affiliate licence) and UMLS-derived Bio-ML references. Private
 research use only; never make this repo public.
 """

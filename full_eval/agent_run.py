@@ -157,7 +157,13 @@ def main(argv: list[str] | None = None) -> int:
                         known.update({(e["source_iri"], e["pair_id"]): e for e in episodes})
                     shard_start = time.time()
                     timing["start"] = timing["start"] or shard_start
-                    records = list(pool.map(matcher.run_episode, episodes))
+                    records = []
+                    for i, record in enumerate(pool.map(matcher.run_episode, episodes), 1):
+                        records.append(record)
+                        if i % 50 == 0:  # the run's progress bar reads this between shards
+                            state["in_shard"] = i
+                            progress.write_text(json.dumps(state))
+                    state["in_shard"] = 0
                     write_replies(target, [row_of(e, r) for e, r in zip(episodes, records)])
                     spent = time.time() - shard_start
                     state["decisions"] += len(episodes)

@@ -1,6 +1,6 @@
 """The full-alignment run: models, episodes, GPU workers, money guard, scoring and the report, resumable.
 
-    python -m full_eval.run            # shows the plan and what $100 buys, asks once, then runs to the end
+    python -m full_eval.run            # shows the plan and what the cap buys (default $425), asks once, then runs
     python -m full_eval.run --yes      # no question
     python -m full_eval.run --plan     # only the plan
 
@@ -21,7 +21,8 @@ import subprocess
 import sys
 import time
 
-from .schedule import Budget, Speed, decisions, label, method, project, replies_complete, root, unit_done, units
+from .schedule import (Budget, Speed, bar, decisions, label, method, progress_text, project, replies_complete, root,
+                       unit_done, units)
 
 PY = sys.executable
 
@@ -67,19 +68,42 @@ def save_plan(statuses: dict, budget: Budget) -> None:
                                                   "price_usd_per_hour": budget.price, "units": rows}, indent=1))
 
 
-def progress_line(model: str, block: list[str], budget: Budget, started: float) -> str:
-    done = total = 0
-    for slug in block:
-        manifest = root() / "episodes" / slug / "manifest.json"
-        if not (manifest.parent / "READY").exists():
+def replied(model: str, slug: str) -> tuple[int, int]:
+    """(decisions with replies, decisions) of one unit: finished shards, plus the classes the GPU workers have done
+    inside their current shard (agent workers report every 50). Not built yet: (0, the estimate)."""
+    manifest = root() / "episodes" / slug / "manifest.json"
+    if not (manifest.parent / "READY").exists():
+        return 0, decisions(slug)[0]
+    shards = json.loads(manifest.read_text())["shards"]
+    folder = root() / "replies" / model / slug
+    done = sum(n for name, n in shards.items() if (folder / name.replace(".jsonl.gz", ".replies.jsonl.gz")).exists())
+    for path in (root() / "progress").glob(f"{model}.*.json"):
+        try:
+            state = json.loads(path.read_text())
+        except (OSError, ValueError):  # being written
             continue
-        shards = json.loads(manifest.read_text())["shards"]
-        folder = root() / "replies" / model / slug
-        total += sum(shards.values())
-        done += sum(n for name, n in shards.items() if (folder / name.replace(".jsonl.gz", ".replies.jsonl.gz")).exists())
-    rate = done / max(1.0, time.time() - started)
-    return (f"[{time.strftime('%H:%M:%S')}] {label(model)}: {done:,}/{total:,} decisions "
-            f"({rate:.0f}/s incl. load) · spent ${budget.spent():.2f} of ${budget.cap:.0f}")
+        if state.get("task") == slug:
+            done += state.get("in_shard", 0)
+    return min(done, sum(shards.values())), sum(shards.values())
+
+
+def progress_line(model: str, block: list[str], budget: Budget, started: float, done_before: int) -> str:
+    """The block (one method on its tasks) and the whole run, with speed, time left and money."""
+    counts = [replied(model, slug) for slug in block]
+    done, total = sum(c[0] for c in counts), sum(c[1] for c in counts)
+    rate = (done - done_before) / max(1.0, time.time() - started)
+    run = [replied(m, s) if not unit_done(m, s) else (decisions(s)[0],) * 2 for m, s in units()]
+    run_done, run_total = sum(c[0] for c in run), sum(c[1] for c in run)
+    return (f"[{time.strftime('%H:%M:%S')}] {progress_text(label(model), done, total, rate)} | run "
+            f"{bar(run_done, run_total, 12)} · ${budget.spent():.2f} of ${budget.cap:.0f}")
+
+
+def show(line: str) -> None:
+    """A live line on a terminal (tmux), a new line in a log file."""
+    if sys.stdout.isatty():
+        print("\r\033[K" + line, end="", flush=True)
+    else:
+        print(line, flush=True)
 
 
 def run_block(model: str, block: list[str], budget: Budget, speed: Speed, ngpu: int) -> bool:
@@ -101,14 +125,16 @@ def run_block(model: str, block: list[str], budget: Budget, speed: Speed, ngpu: 
         log = open(root() / "logs" / f"infer_{model}_{rank}.log", "a")
         workers.append(subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, env=env))
     started = time.time()
+    done_before = sum(replied(model, slug)[0] for slug in block)  # a resumed block: count only the new work
     stopped = False
     while any(w.poll() is None for w in workers):
-        time.sleep(20)
+        time.sleep(10 if sys.stdout.isatty() else 20)
         if budget.spent() >= budget.cap - budget.reserve / 2 and not stopped:
             (root() / "STOP").write_text(f"spend reached ${budget.spent():.2f} of ${budget.cap:.0f}")
             stopped = True
-            print("[money] the cap is reached: the workers stop after their current shard", flush=True)
-        print(progress_line(model, block, budget, started), flush=True)
+            print("\n[money] the cap is reached: the workers stop after their current shard", flush=True)
+        show(progress_line(model, block, budget, started, done_before))
+    print(flush=True)
     failed = [w.returncode for w in workers if w.returncode not in (0, 3)]
     if failed:
         raise SystemExit(f"a GPU worker failed (exit {failed}); see outputs/full_eval/logs/infer_{model}_*.log")
@@ -129,6 +155,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     (root() / "logs").mkdir(parents=True, exist_ok=True)
     budget, speed = Budget(args.budget), Speed()
+    from .build_episodes import stale_tasks
+    from .schedule import task_order
+
+    stale = stale_tasks(task_order())
+    if stale:
+        raise SystemExit(f"episodes of {', '.join(stale)} were built with another FULL_EVAL_SCOPE; use a new OA_OUT_DIR")
     if (root() / "STOP").exists():
         (root() / "STOP").unlink()  # a new run decides afresh against the cap
     todo = [u for u in units() if not unit_done(*u)]

@@ -3,10 +3,11 @@
     python -m full_eval.score grpo anatomy__mouse-human
     python -m full_eval.score all_merged-agent-think dh
 
-Full alignments only: every class of the source ontology is aligned, and every score uses the whole reference. There
-is no held-out view: no reference link is set aside or treated as null. (The models were trained on part of these
-references, the 80/20 split of the earlier run; the report says so. IoTSec -> UCO and the zero-shot pairs were never
-trained on.)
+No held-out view: no reference link is set aside or treated as null, and every score uses the whole reference. (The
+models were trained on part of these references, the 80/20 split of the earlier run; the report says so. IoTSec -> UCO
+and the zero-shot pairs were never trained on.) FULL_EVAL_SCOPE=reference (the default) runs the classes the Top-k
+evaluation scores and computes only (2), the retrieval ceiling and (3); SNOMED CT -> ICD-11 keeps its complete map and
+silver agreement. FULL_EVAL_SCOPE=all runs every class and adds (1), which needs the whole alignment.
 
 1. OAEI scores of the whole alignment (the published protocol, as MELT computes it): P = |A∩R|/|A|, R = |A∩R|/|R|,
    F = 2PR/(P+R). A = the system's alignment: matches with confidence >= 0.5 (none given = 1.0), then a greedy 1:1
@@ -33,9 +34,10 @@ the WHO table), a silver standard, labelled so; Top-k against the strong compose
    answers written inside the thinking, replies cut at the token limit; agent: model calls, extra commands, format
    errors, exit statuses and seconds per class.
 
-Outputs per unit (results/<method>/<task>/): scores.json, decisions.tsv.gz (every class: decision, target, label,
-confidence, THOUGHT) and the alignment (pairs/<pair>/alignment.rdf and alignment.sssom.tsv); SNOMED CT -> ICD-11: the
-complete map (icd11_snomed_complete.sssom.tsv, snomed_to_icd11.tsv.gz).
+Outputs per unit (results/<task>/<method folder>/, e.g. results/anatomy__mouse-human/4-opsd-grpo/): scores.json, decisions.tsv.gz (every class run: decision, target, label,
+confidence, THOUGHT), the alignment of the classes that ran (pairs/<pair>/alignment.rdf in OAEI format and
+alignment.sssom.tsv: matches with confidence >= 0.5, greedy 1:1; ICD-10: alignment.rdf of every WHO code); SNOMED CT ->
+ICD-11: the complete map (icd11_snomed_complete.sssom.tsv, snomed_to_icd11.tsv.gz).
 """
 
 from __future__ import annotations
@@ -54,8 +56,9 @@ from oa_rlaif.ontology.alignment_io import SSSOM_PREDICATE, select_equivalences,
 from oa_rlaif.ontology.models import Alignment
 
 from .build_episodes import read_shard
-from .schedule import label, method, root
-from .tasks import Task, is_meta, load_profile_any, reference_pairs, tasks, zero_shot_pairs
+from .schedule import label, method, results_dir, root
+from .tasks import (Task, eval_scope, is_meta, load_profile_any, reference_classes, reference_pairs, tasks,
+                    zero_shot_pairs)
 
 THRESHOLD = 0.5
 TOOL = "oa-rlaif-e4b"
@@ -174,10 +177,9 @@ def summarize(pairs: dict) -> dict:
     """Dataset rows: zero-shot pairs inside a family task (e.g. FLOPO -> PTO in Biodiv) count only in zero_shot."""
     family = [p for p in pairs.values() if not p["zero_shot"]]
     zero = [p for p in pairs.values() if p["zero_shot"]]
-    return {"pairs": pairs,
-            "oaei": oaei_aggregate([p["oaei"] for p in family]), "topk": topk_aggregate([p["topk"] for p in family]),
-            "zero_shot": {"oaei": oaei_aggregate([p["oaei"] for p in zero]),
-                          "topk": topk_aggregate([p["topk"] for p in zero])} if zero else {}}
+    oaei = lambda rows: oaei_aggregate([p["oaei"] for p in rows if "oaei" in p])  # noqa: E731  (scope 'all' only)
+    return {"pairs": pairs, "oaei": oaei(family), "topk": topk_aggregate([p["topk"] for p in family]),
+            "zero_shot": {"oaei": oaei(zero), "topk": topk_aggregate([p["topk"] for p in zero])} if zero else {}}
 
 
 def behaviour(records: list[dict], tag: str) -> dict:
@@ -208,15 +210,19 @@ def behaviour(records: list[dict], tag: str) -> dict:
 
 # ---- ontology pairs ----------------------------------------------------------------------------------------------------
 class PairScorer:
-    """OAEI scores of one pair's whole alignment against its whole reference."""
+    """One pair's reference: the Top-k partners, and (oaei=True) the OAEI scores of the whole alignment."""
 
-    def __init__(self, spec):
+    def __init__(self, spec, oaei: bool = True):
         from oa_rlaif.ontology.alignment_io import read_alignment
 
         self.spec = spec
         self.source, self.target = load_profile_any(spec.source), load_profile_any(spec.target)
+        self.partner_map = reference_classes(spec, self.source, self.target)  # Top-k: the classes the episodes run
+        self.all_links = {(s, t) for s, ts in self.partner_map.items() for t in ts}
+        self.zero_shot = spec.pair_id in zero_shot_pairs()
+        if not oaei:
+            return
         keep = lambda pairs: {p for p in pairs if not is_meta(p[0]) and not is_meta(p[1])}  # noqa: E731
-        self.all_links = keep(reference_pairs(spec, self.source, self.target))  # Top-k: links between the two ontologies
         whole = keep(reference_pairs(spec, self.source, self.target, keep_unresolved=True))
         equivalences = keep(reference_pairs(spec, self.source, self.target, equivalence_only=True, keep_unresolved=True))
         self.any_relation = not equivalences and bool(whole)  # e.g. IoTSec -> UCO: every link 'related'
@@ -225,13 +231,9 @@ class PairScorer:
         # Recall+ is OAEI's Anatomy measure, defined by its trivial.rdf; no other track defines it, so it is "–" there
         self.trivial = ({a.pair for a in read_alignment(spec.trivial) if a.atomic} & self.reference
                         if spec.trivial and spec.trivial.exists() else None)
-        self.zero_shot = spec.pair_id in zero_shot_pairs()
 
     def partners(self) -> dict:
-        out: dict = defaultdict(set)
-        for s, t in self.all_links:
-            out[s].add(t)
-        return dict(out)
+        return self.partner_map
 
     def oaei(self, alignment) -> dict:
         predicted = {a.pair for a in alignment if self.any_relation or a.relation == "="}
@@ -240,23 +242,30 @@ class PairScorer:
 
 
 def score_pairs(tag: str, task: Task, by_pair: dict[str, list[dict]], out: Path) -> dict:
+    whole = eval_scope() == "all"  # the OAEI scores and alignment files need every class aligned
     pairs = {}
     for spec in sorted(task.specs, key=lambda s: s.pair_id):
         records = by_pair.get(spec.pair_id, [])
-        alignment = select_equivalences([a for r in records for a in picks_of(r)])
-        scorer = PairScorer(spec)
+        scorer = PairScorer(spec, oaei=whole)
         partners = scorer.partners()
         aligned = {r["source_iri"] for r in records}
         pairs[spec.pair_id] = {
-            "zero_shot": scorer.zero_shot, "sources": len(records), "reference_links": len(scorer.reference),
-            "reference_links_outside_the_ontologies": scorer.unresolved,
-            "reference_relations": "all (no equivalences in the reference)" if scorer.any_relation else "equivalence",
+            "zero_shot": scorer.zero_shot, "sources": len(records), "reference_links_scored": len(scorer.all_links),
             "reference_classes": len(partners), "reference_classes_not_aligned": len(set(partners) - aligned),
             # share of reference classes whose partner was among the candidates at all: no method can do better
             "retrieval_ceiling": sum(bool(set(r["candidates"]) & partners[r["source_iri"]]) for r in records
                                      if r["source_iri"] in partners) / max(1, len(partners)),
             "decisions": {k: sum(r["decision"] == k for r in records) for k in ("match", "NONE", "invalid")},
-            "oaei": scorer.oaei(alignment), "topk": topk_of(records, partners)}
+            "topk": topk_of(records, partners)}
+        # the alignment file holds the classes that ran (scope 'reference': the reference classes, so it is not a
+        # whole-ontology alignment and gets no OAEI score)
+        alignment = select_equivalences([a for r in records for a in picks_of(r)])
+        pairs[spec.pair_id]["alignment_size"] = len(alignment)
+        if whole:
+            pairs[spec.pair_id].update({
+                "reference_links": len(scorer.reference), "reference_links_outside_the_ontologies": scorer.unresolved,
+                "reference_relations": "all (no equivalences in the reference)" if scorer.any_relation else "equivalence",
+                "oaei": scorer.oaei(alignment)})
         folder = out / "pairs" / spec.pair_id.replace("/", "__")
         write_oaei_rdf(folder / "alignment.rdf", alignment)
         labels = {r["source_iri"]: r["source_label"] for r in records}
@@ -287,13 +296,15 @@ def score_icd10(task: Task, records: list[dict], out: Path) -> dict:
         reference.update((r["source_iri"], t) for t in targets)
     n = max(1, len(records))
     partners = {iri: set(g["targets"]) for iri, g in gold.items() if g["targets"]}
-    pair = {"zero_shot": False, "codes": len(records), "accuracy": correct / n,
+    pair = {"zero_shot": False, "codes": len(records), "reference_classes": len(partners),
             "retrieval_ceiling": sum(any(t in r["candidates"] for t in gold[r["source_iri"]]["targets"])
-                                     for r in records) / n,
-            "oaei": oaei_dict(AlignmentEvaluator().evaluate(predicted, reference)), "topk": topk_of(records, partners)}
-    write_oaei_rdf(out / "alignment.rdf", [a for r in records for a in picks_of(r)])
-    return {"pairs": {task.pair_ids[0]: pair}, "accuracy": pair["accuracy"], "oaei": oaei_aggregate([pair["oaei"]]),
-            "topk": topk_aggregate([pair["topk"]]), "zero_shot": {}}
+                                     for r in records) / n, "topk": topk_of(records, partners)}
+    result = {"pairs": {task.pair_ids[0]: pair}, "topk": topk_aggregate([pair["topk"]]), "zero_shot": {}}
+    if eval_scope() == "all":  # the earlier Table 1 accuracy and the OAEI scores (scope 'all' only)
+        pair.update(accuracy=correct / n, oaei=oaei_dict(AlignmentEvaluator().evaluate(predicted, reference)))
+        result.update(accuracy=pair["accuracy"], oaei=oaei_aggregate([pair["oaei"]]))
+    write_oaei_rdf(out / "alignment.rdf", [a for r in records for a in picks_of(r)])  # every WHO code, either scope
+    return result
 
 
 def score_snomed_icd11(tag: str, task: Task, records: list[dict], out: Path) -> dict:
@@ -348,7 +359,7 @@ def score_snomed_icd11(tag: str, task: Task, records: list[dict], out: Path) -> 
 # ---- one unit --------------------------------------------------------------------------------------------------------
 def score(tag: str, slug: str) -> dict:
     task = next(t for t in tasks() if t.slug == slug)
-    out = root() / "results" / tag / slug
+    out = results_dir(tag, slug)
     out.mkdir(parents=True, exist_ok=True)
     records = [decide(e, row) for e, row in load_unit(tag, task)]
     by_pair: dict[str, list[dict]] = defaultdict(list)
@@ -363,8 +374,9 @@ def score(tag: str, slug: str) -> dict:
     kept = {(a.source_iri, a.target_iri) for r in records for a in picks_of(r)}
     write_decisions(out / "decisions.tsv.gz", records, kept)
     m = method(tag)
+    view = "full alignment" if eval_scope() == "all" else "reference classes (Top-k evaluation)"
     result.update(model=tag, method=m.base, thinking=m.think, agent=m.agent, label=label(tag), task=slug,
-                  family=task.family, column=task.column, view="full alignment", decisions=len(records),
+                  family=task.family, column=task.column, view=view, scope=eval_scope(), decisions=len(records),
                   behaviour=behaviour(records, tag), **unit_timing(tag, slug))
     (out / "scores.json").write_text(json.dumps(result, indent=1, default=str))
     return result

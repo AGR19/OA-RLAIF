@@ -1,10 +1,17 @@
-"""Tables of the full-alignment evaluation: full alignments only (every class aligned, whole references, no held-out
-view).
+"""Tables of the full evaluation (whole references, no held-out view).
 
     python -m full_eval.report        -> outputs/full_eval/report.md, report.tex, report.json, figures/
 
-Rows: the six methods (base, SFT, OPSD, OPSD -> GRPO, All merged, All merged + mini-SWE-agent), each with thinking off
-and on. A unit that did not run shows "–"; nothing is estimated or filled in.
+Rows: the selected methods (default: base, + SFT, + OPSD, + OPSD -> GRPO and All merged with thinking off, All merged
++ mini-SWE-agent with thinking on). A unit that did not run shows "–"; nothing is estimated or filled in.
+
+FULL_EVAL_SCOPE=reference (the default; the classes the Top-k evaluation scores):
+Part 1  The Top-k evaluation (k = 1, 3, 5).     Table 1 F-measure@1 per dataset; Table 2 Precision, Recall and
+        F-measure at k = 1, 3, 5 per dataset; Table 3 per pair, with the retrieval ceiling; figures/topk_<column>.svg.
+Part 2  What the methods did.                   Table 4 answers, tokens, the agent's steps, the thinking, runtime, $.
+Part 3  The complete SNOMED CT -> ICD-11 map.    Table 5; Table 6 the units (method x task) and the money.
+
+FULL_EVAL_SCOPE=all (every class aligned):
 Part 1  OAEI scores of the whole alignment.     Table 1 F-measure per dataset, ICD-10 -> ICD-11 accuracy, SNOMED CT ->
         ICD-11 agreement; Table 2 the OAEI rows per pair; Table 3 Anatomy beside the published systems; Table 4 ICD-10
         -> ICD-11 in detail.
@@ -24,8 +31,8 @@ import sys
 from oa_rlaif.eval.metrics import TOP_K, TOP_K_NAME
 from oa_rlaif.eval.report import render
 
-from .schedule import AGENT, REPORT_ORDER, label, method, root
-from .tasks import COLUMNS, tasks, zero_shot_pairs
+from .schedule import AGENT, REPORT_ORDER, label, method, root, selected_methods
+from .tasks import COLUMNS, eval_scope, tasks, zero_shot_pairs
 
 THINKING = (False, True)
 OWN_COLUMN = {"cyber", "biodiv2026"}  # zero-shot families with a column of their own (not in the Zero-shot column)
@@ -42,7 +49,9 @@ def tag_of(base: str, think: bool) -> str:
 
 
 def row_tags() -> list[str]:
-    return [tag_of(b, t) for t in THINKING for b in REPORT_ORDER]
+    """The selected methods (full_eval.schedule.selected_methods) in table order: thinking off, then on."""
+    chosen = set(selected_methods())
+    return [tag for t in THINKING for b in REPORT_ORDER if (tag := tag_of(b, t)) in chosen]
 
 
 def collect() -> dict[str, dict[str, dict]]:
@@ -193,27 +202,73 @@ def table6(results: dict) -> list:
     return rows
 
 
-def figures(results: dict) -> list[str]:
-    """One chart per dataset column and thinking setting: Precision, Recall and F-measure vs. Top-k, one line per
-    method."""
+def figures(results: dict, split_thinking: bool) -> list[str]:
+    """One chart per dataset column: Precision, Recall and F-measure vs. Top-k, one line per method. split_thinking
+    (scope 'all'): one chart per thinking setting; else every selected method in one chart."""
     from oa_rlaif.eval.topk_chart import write_topk_chart
 
+    groups = ([(f"_thinking-{'on' if t else 'off'}", f", thinking {'on' if t else 'off'}",
+                [tag for tag in row_tags() if method(tag).think == t]) for t in THINKING]
+              if split_thinking else [("", "", row_tags())])
     written = []
     for column in COLUMNS:
-        for think in THINKING:
+        for suffix, title, tags in groups:
             series = {}
-            for base in REPORT_ORDER:
-                per = results.get(tag_of(base, think), {})
+            for tag in tags:
+                per = results.get(tag, {})
                 cells = {k: {m: topk_value(per, column, k, m) for m in ("Precision", "Recall", "F-measure")} for k in TOP_K}
                 if all(v is not None for c in cells.values() for v in c.values()):
-                    series[label(base)] = {k: {m: v / 100 for m, v in c.items()} for k, c in cells.items()}
+                    series[label(method(tag).base) if split_thinking else label(tag)] = {
+                        k: {m: v / 100 for m, v in c.items()} for k, c in cells.items()}
             if series:
                 slug = column.lower().replace("→", "-to-").replace(" ", "-")
-                name = f"figures/topk_{slug}_thinking-{'on' if think else 'off'}.svg"
-                write_topk_chart(root() / name, series, f"{column}, full alignment, thinking {'on' if think else 'off'}: "
-                                                        f"{TOP_K_NAME}")
+                name = f"figures/topk_{slug}{suffix}.svg"
+                write_topk_chart(root() / name, series, f"{column}{title}: {TOP_K_NAME}")
                 written.append(name)
     return written
+
+
+def table_pairs(results: dict) -> list:
+    """Per pair (tasks with more than three pairs: the mean over their pairs): classes scored, retrieval ceiling and
+    the Top-k evaluation."""
+    rows = []
+    for t in tasks():
+        for tag in row_tags():
+            s = results.get(tag, {}).get(t.slug)
+            if not s:
+                continue
+            groups = ([(f"{t.slug} (mean over {len(s['pairs'])} pairs)", list(s["pairs"].values()))]
+                      if len(s["pairs"]) > 3 else [(pair_id, [p]) for pair_id, p in sorted(s["pairs"].items())])
+            for name, pairs in groups:
+                ceiling = mean([p.get("retrieval_ceiling", (p.get("strong_links") or {}).get("retrieval_ceiling"))
+                                for p in pairs])
+                rows.append((f"{name} · {label(tag)}",
+                             [sum((p.get("topk") or {}).get("classes_scored", 0) for p in pairs), ceiling,
+                              *[mean([topk_cell(p, k, m) for p in pairs])
+                                for k, m in ((1, "Precision"), (1, "Recall"), (1, "F-measure"), (3, "F-measure"),
+                                             (5, "F-measure"))]]))
+    return rows
+
+
+def table_behaviour(results: dict, price: float | None) -> list:
+    """What each method did, over every task it ran (weighted by classes)."""
+    rows = []
+    for tag in row_tags():
+        if tag not in results:
+            continue
+        m = method(tag)
+        hours = sum(s.get("runtime_s") or 0 for s in results[tag].values()) / 3600
+        agent = lambda key, scale=1.0: pooled(results, tag, key, scale) if m.agent else None  # noqa: E731
+        think = lambda key, scale=1.0: pooled(results, tag, key, scale) if m.think else None  # noqa: E731
+        rows.append((label(tag), [sum(s["behaviour"]["classes"] for s in results[tag].values()),
+                                  pooled(results, tag, "match", 100), pooled(results, tag, "none", 100),
+                                  pooled(results, tag, "invalid", 100), pooled(results, tag, "prompt_tokens_per_class"),
+                                  pooled(results, tag, "completion_tokens_per_class"), agent("model_calls_per_class"),
+                                  agent("extra_commands_per_class"), agent("format_errors_per_class"),
+                                  agent("seconds_per_class"), think("thinking_chars_per_class"),
+                                  think("answer_in_thinking", 100), think("truncated", 100), hours or None,
+                                  hours * price if hours and price else None]))
+    return rows
 
 
 # ---- Part 3: the agent -----------------------------------------------------------------------------------------------
@@ -309,11 +364,75 @@ def plain_table(title: str, header: list[str], rows: list[list]) -> str:
     return "\n".join(lines)
 
 
-def build() -> dict:
-    results = collect()
-    plan = json.loads((root() / "plan.json").read_text()) if (root() / "plan.json").exists() else {"units": []}
-    price = plan.get("price_usd_per_hour")
-    verify = {p.stem.split("_", 1)[1]: json.loads(p.read_text()) for p in root().glob("verify_*.json")}
+def units_table(plan: dict, price: float | None, number: int) -> str:
+    units = [[u["model"], u["task"], f"{u['decisions']:,}", u.get("status", ""), u.get("seconds", ""), u.get("usd", "")]
+             for u in plan.get("units", [])]
+    return plain_table(f"Table {number}. Units (method × task): budget ${plan.get('budget_usd', '?')}, spent "
+                       f"${plan.get('spent_usd', '?')} at ${price or '?'}/h.",
+                       ["Method", "Task", "Decisions", "Status", "Seconds", "Projected $"], units)
+
+
+def snomed_table(results: dict, number: int) -> tuple[str, str]:
+    return render(f"Table {number}. The complete SNOMED CT → ICD-11 map (every active concept in ICD's scope). Agreement "
+                  "= the model's ICD-11 category is one of the concept's ICD-10-composed links (silver, not gold); "
+                  "retrieval misses count as failures.",
+                  ["Concepts", "Mapped %", "NONE %", "Invalid %", "Agree (strong) %", "Retrieval ceiling %",
+                   "Agree (any link) %", "Top-1 F (strong)"], table11(results),
+                  ["{:,}", "{:.1f}", "{:.1f}", "{:.1f}", "{:.1f}", "{:.1f}", "{:.1f}", "{:.3f}"],
+                  higher=[None, None, None, False, True, None, True, True])
+
+
+def tables_reference(results: dict, price: float | None, plan: dict) -> tuple[dict, list, list]:
+    """FULL_EVAL_SCOPE=reference: the Top-k evaluation only."""
+    header = COLUMNS + ["Average"]
+    pct = "{:.1f}"
+    tables = {
+        "t1": render(f"Table 1. {TOP_K_NAME}: F-measure@1 ×100 per dataset (mean over pairs). Every source class with a "
+                     "partner in the reference is scored; SNOMED→ICD-11 against the strong ICD-10-composed links "
+                     "(silver, no reference exists).", header, table5(results), pct),
+        "t2": render(f"Table 2. {TOP_K_NAME} per dataset: Precision@k, Recall@k and F-measure@k ×100.",
+                     [f"{m[0]}@{k}" for k in TOP_K for m in ("Precision", "Recall", "F-measure")] + ["Classes scored"],
+                     table6(results), [pct] * 9 + ["{:,}"], higher=[True] * 9 + [None]),
+        "t3": render(f"Table 3. {TOP_K_NAME} per pair (MultiFarm, DH and DH-ML: the mean over their pairs). Ceiling = "
+                     "share of scored classes whose partner was among the retrieved candidates (no method can exceed "
+                     "it); P, R, F at k ×1.", ["Classes scored", "Ceiling", "P@1", "R@1", "F@1", "F@3", "F@5"],
+                     table_pairs(results), ["{:,}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}"],
+                     higher=[None, None, True, True, True, True, True]),
+        "t4": render("Table 4. What the methods did (every task the method ran, weighted by classes). Model calls, "
+                     "extra commands (beyond the scripted om profile / om show / om candidates and the submit), format "
+                     "errors and seconds: the agent only; thinking: the thinking-on methods only.",
+                     ["Classes", "Match %", "NONE %", "Invalid %", "Prompt tokens/class", "Completion tokens/class",
+                      "Model calls/class", "Extra commands/class", "Format errors/class", "Seconds/class",
+                      "Thinking characters/class", "Answer inside thinking %", "Cut at token limit %", "Runtime h",
+                      "Cost $"], table_behaviour(results, price),
+                     ["{:,}", pct, pct, pct, "{:,.0f}", "{:,.0f}", "{:.2f}", "{:.2f}", "{:.2f}", "{:.1f}", "{:,.0f}",
+                      pct, pct, "{:.2f}", "{:.2f}"], higher=[None] * 15),
+        "t5": snomed_table(results, 5),
+    }
+    notes = ["_The Top-k evaluation only (DRAL-OA's clf.py formula): every source class with a partner in the reference "
+             "is aligned and scored; there is no held-out view. Each class is its own episode, so the scores equal those "
+             "of aligning every class. SNOMED CT → ICD-11 has no reference: every concept in ICD's scope is aligned "
+             "(the complete map) and the concepts with a strong composed link are scored. The models were trained on "
+             "part of these references (the 80/20 split of the earlier run); the zero-shot pairs, IoTSec → UCO and "
+             "the OAEI 2026 Biodiversity and Ecology test cases were never trained on._",
+             "_“–” = not run or not measured. Nothing is estimated. Reference classes that are deprecated in their "
+             "ontology (one SNOMED CT concept in Bio-ML, 5 and 6 ENVO classes) are not aligned and count as misses. "
+             "Bio-ML: its test references are kept by the organisers, so its public train and valid references are "
+             "scored._",
+             "_The agent is never given a reference: its task folder holds the public episode only, and the references "
+             "are read from the raw folders for scoring only. Every class is matched against the whole target "
+             "ontology (retrieval, then the model's choice)._",
+             "_Directions follow each reference file (README: Directions). Hydrography cree → SWO: retrieval finds no "
+             "partner (Ceiling column), so no method can score there. SNOMED CT → ICD-11 is a classification "
+             "(classified under), the statistical use case of the SNOMED International / WHO pilot (Fung et al. "
+             "2024)._"]
+    parts = [(f"## Part 1. {TOP_K_NAME}", ["t1", "t2", "t3"]), ("## Part 2. What the methods did", ["t4"]),
+             ("## Part 3. The complete SNOMED CT → ICD-11 map", ["t5"])]
+    return tables, parts, notes + [units_table(plan, price, 6)]
+
+
+def tables_all(results: dict, price: float | None, plan: dict) -> tuple[dict, list, list]:
+    """FULL_EVAL_SCOPE=all: OAEI scores of the whole alignment, the Top-k evaluation, the agent and the thinking."""
     header = COLUMNS + ["Average"]
     pct = "{:.1f}"
     signed = "{:+.1f}"
@@ -361,19 +480,8 @@ def build() -> dict:
                        "Invalid % (off)", "Invalid % (on)", "Runtime h (off)", "Runtime h (on)"], table10(results),
                       ["{:,}", pct, pct, pct, "{:,.0f}", "{:,.0f}", "{:,.0f}", pct, pct, "{:.2f}", "{:.2f}"],
                       higher=[None] * 11),
-        "t11": render("Table 11. The complete SNOMED CT → ICD-11 map (every active concept in ICD's scope). Agreement = "
-                      "the model's ICD-11 category is one of the concept's ICD-10-composed links (silver, not gold); "
-                      "retrieval misses count as failures.",
-                      ["Concepts", "Mapped %", "NONE %", "Invalid %", "Agree (strong) %", "Retrieval ceiling %",
-                       "Agree (any link) %", "Top-1 F (strong)"], table11(results),
-                      ["{:,}", pct, pct, pct, pct, pct, pct, "{:.3f}"], higher=[None, None, None, False, True, None, True, True]),
+        "t11": snomed_table(results, 11),
     }
-    units = [[u["model"], u["task"], f"{u['decisions']:,}", u.get("status", ""), u.get("seconds", ""), u.get("usd", "")]
-             for u in plan.get("units", [])]
-    t12 = plain_table(f"Table 12. Units (method × task): budget ${plan.get('budget_usd', '?')}, spent "
-                      f"${plan.get('spent_usd', '?')} at ${price or '?'}/h.",
-                      ["Method", "Task", "Decisions", "Status", "Seconds", "Projected $"], units)
-    charts = figures(results)
     notes = ["_Full alignments only: every class of every source ontology is aligned, and every score uses the whole "
              "reference. There is no held-out view. The models were trained on part of these references (the 80/20 "
              "split of the earlier run), which OAEI rules do not allow for an official entry; the zero-shot pairs and "
@@ -389,27 +497,41 @@ def build() -> dict:
              "(28 concepts not in our SNOMED CT release). Hydrography cree → SWO: retrieval finds no partner (Ceiling "
              "column), so no method can score there. SNOMED CT → ICD-11 is a classification (classified under), the "
              "statistical use case of the SNOMED International / WHO pilot (Fung et al. 2024)._"]
-    if verify:
-        notes.append("_Weight check of the rebuilt models (not an evaluation): same decision as the earlier run's "
-                     "replies: " + "; ".join(f"{k}: {v['same_decision']} of {v['checked']}" if v.get("checked")
-                                             else f"{k}: not done ({v.get('note', 'no replies to compare')})"
-                                             for k, v in sorted(verify.items())) + "._")
     parts = [("## Part 1. Full alignment: OAEI scores", ["t1", "t2", "t3", "t4"]),
              (f"## Part 2. Full alignment: {TOP_K_NAME}", ["t5", "t6"]),
              ("## Part 3. What the mini-SWE-agent adds to All merged", ["t7", "t8"]),
              ("## Part 4. Thinking on against thinking off", ["t9", "t10"]),
              ("## The complete SNOMED CT → ICD-11 map", ["t11"])]
-    md = ["# Full-alignment evaluation", *notes]
+    return tables, parts, notes + [units_table(plan, price, 12)]
+
+
+def build() -> dict:
+    results = collect()
+    plan = json.loads((root() / "plan.json").read_text()) if (root() / "plan.json").exists() else {"units": []}
+    price = plan.get("price_usd_per_hour")
+    verify = {p.stem.split("_", 1)[1]: json.loads(p.read_text()) for p in root().glob("verify_*.json")}
+    whole = eval_scope() == "all"
+    tables, parts, notes = (tables_all if whole else tables_reference)(results, price, plan)
+    units = notes.pop()
+    charts = figures(results, split_thinking=whole)
+    if verify:
+        notes.append("_Weight check of the rebuilt models (not an evaluation): same decision as the earlier run's "
+                     "replies: " + "; ".join(f"{k}: {v['same_decision']} of {v['checked']}" if v.get("checked")
+                                             else f"{k}: not done ({v.get('note', 'no replies to compare')})"
+                                             for k, v in sorted(verify.items())) + "._")
+    topk_keys = {"t5", "t6"} if whole else {"t1", "t2", "t3"}
+    md = ["# Full-alignment evaluation" if whole else f"# Full evaluation: {TOP_K_NAME}", *notes]
     for title, keys in parts:
         md.append(title)
         md += [tables[k][0] for k in keys]
-        if keys == ["t5", "t6"] and charts:
+        if set(keys) == topk_keys and charts:
             md.append("Figures (Precision, Recall and F-measure vs. Top-k): " + ", ".join(f"`{c}`" for c in charts))
-    md += ["## Units and cost", t12]
+    md += ["## Units and cost", units]
     out = root()
     (out / "report.md").write_text("\n\n".join(md) + "\n")
     (out / "report.tex").write_text("\n\n".join(tables[k][1] for k in sorted(tables, key=lambda k: int(k[1:]))) + "\n")
-    report = {"view": "full alignment", "tables": {k: v[0] for k, v in tables.items()}, "figures": charts,
+    report = {"view": "full alignment" if whole else "reference classes (Top-k evaluation)", "scope": eval_scope(),
+              "tables": {k: v[0] for k, v in tables.items()}, "figures": charts,
               "methods": {tag: {"label": label(tag), "thinking": method(tag).think, "agent": method(tag).agent}
                           for tag in row_tags()}, "weight_check": verify}
     (out / "report.json").write_text(json.dumps(report, indent=1, default=str))

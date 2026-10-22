@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         confirm_implausible(price, why)
     meter.set_price(price, source, machine)
     set_env_price(price)
-    cap = float(os.environ.get("FULL_EVAL_BUDGET_USD", "100"))
+    cap = float(os.environ.get("FULL_EVAL_BUDGET_USD", "425"))  # as schedule.DEFAULT_BUDGET_USD (stdlib only here)
     print(f"[price] ${price:.2f}/h ({source}); {len(machine)} GPU(s): {', '.join(sorted({n for n, _ in machine})) or '?'}")
     print(f"[price] cap ${cap:.0f} = {cap / price:.1f} h of this machine, setup and downloads included "
           f"(spent so far ${meter.spent():.2f})")

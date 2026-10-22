@@ -5,13 +5,16 @@
 
 Each episode is what training and the earlier evaluation used: the source card, k candidate cards (anatomy k=40, else
 k=20; q-gram retrieval, multilingual e5 retrieval for MultiFarm and DH multilingual, ICD-11 retrieval with ancestor
-expansion for the ICD tasks), the pair id and both modelling profiles. Differences from the held-out sets, all needed
-for a whole alignment: every source class gets an episode (not only classes with a reference link); candidates come
-from retrieval over the whole target (Bio-ML's local 100-candidate pools contain the answer, so they are not used);
-the answer is never inserted into the candidates; deprecated and vocabulary entities are neither sources nor candidates.
+expansion for the ICD tasks), the pair id and both modelling profiles. Which source classes get an episode is
+FULL_EVAL_SCOPE (full_eval/tasks.py): 'reference' (default) = every source class with a partner in the reference, the
+classes the Top-k evaluation scores (SNOMED CT -> ICD-11 stays the complete map of ICD's scope, ICD-10 -> ICD-11 every
+WHO code); 'all' = every source class. Either way, no held-out view: all of those classes run. Candidates come from
+retrieval over the whole target (Bio-ML's local 100-candidate pools contain the answer, so they are not used); the
+answer is never inserted into the candidates and the reference is never shown; deprecated and vocabulary entities are
+neither sources nor candidates.
 
 Output: outputs/full_eval/episodes/<task>/<shard>.jsonl.gz (2,000 episodes each), gold.json for the ICD tasks,
-manifest.json (counts per pair, entities left out and why) and READY when the task is complete.
+manifest.json (counts per pair, entities left out and why, the scope) and READY when the task is complete.
 """
 
 from __future__ import annotations
@@ -29,10 +32,14 @@ from pathlib import Path
 
 from oa_rlaif.paths import out_dir
 
-from .tasks import GIANT, SNOMED_ICD_ROOTS, Task, deprecated_iris, is_meta, load_profile_any, scope
+from .schedule import progress_text
+from .tasks import (GIANT, SNOMED_ICD_ROOTS, Task, deprecated_iris, eval_scope, is_meta, load_profile_any,
+                    reference_classes, scope)
 
 SHARD = 2000
 _W: dict = {}  # worker state, set in the parent before forking (shared copy-on-write)
+_DONE = None  # episodes finished by the ICD workers (a shared counter, set in the parent before forking)
+REPORT_S = 20  # seconds between progress lines
 
 
 def episodes_dir(task: Task) -> Path:
@@ -126,6 +133,24 @@ def file_profiles(spec) -> tuple[str, str]:
     return summary_text(build_profile_from(spec.source)), summary_text(build_profile_from(spec.target))
 
 
+def sources_to_align(task: Task, spec, source, target, dep_s: set[str]) -> tuple[list[str], dict]:
+    """The source classes that get an episode, sorted, and the manifest counts. scope() leaves out vocabulary and
+    deprecated entities; classes_only tracks match classes; FULL_EVAL_SCOPE=reference keeps the classes with a
+    reference partner (deprecated reference sources stay out and count as misses in the Top-k evaluation)."""
+    from oa_rlaif.data.cards import kind_of
+
+    iris = scope(source, dep_s)
+    if task.classes_only:  # OAEI parameters.xml: classes are matched, properties are not
+        iris = [i for i in iris if kind_of(source, i) == "class"]
+    info: dict = {"scope": eval_scope()}
+    if eval_scope() == "reference":
+        partners = reference_classes(spec, source, target)
+        in_scope = set(iris)
+        iris = [i for i in iris if i in partners]
+        info.update(reference_classes=len(partners), reference_classes_left_out=len(set(partners) - in_scope))
+    return iris, info
+
+
 def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> dict:
     from oa_rlaif.data.cards import children_index
     from oa_rlaif.retrieval.candidates import CandidateGenerator
@@ -136,19 +161,18 @@ def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> di
     for p_index, spec in enumerate(sorted(task.specs, key=lambda s: s.pair_id)):
         source, target = load_profile_any(spec.source), load_profile_any(spec.target)
         dep_s, dep_t = deprecated_iris(spec.source), deprecated_iris(spec.target)
-        iris = scope(source, dep_s)
+        iris, info = sources_to_align(task, spec, source, target, dep_s)
         targets = set(scope(target, dep_t))
         if task.classes_only:  # OAEI parameters.xml: classes are matched, properties are not
             from oa_rlaif.data.cards import kind_of
 
-            iris = [i for i in iris if kind_of(source, i) == "class"]
             targets = {t for t in targets if kind_of(target, t) == "class"}
         declared = sum(1 for e in source.entities.values() if e.declared)
         manifest["pairs"][spec.pair_id] = {
             "source": spec.source.name, "target": spec.target.name, "sources": len(iris),
             "declared": declared, "left_out_deprecated": sum(1 for i in dep_s if i in source.entities),
             "left_out_vocabulary": sum(1 for i, e in source.entities.items() if e.declared and is_meta(i)),
-            "target_entities": len(targets), "classes_only": task.classes_only}
+            "target_entities": len(targets), "classes_only": task.classes_only, **info}
         if limit:
             iris = iris[:limit]
         k = cfg.get("k_by_family", {}).get(spec.family, cfg.get("k", 20))
@@ -163,9 +187,14 @@ def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> di
             _W["generator"] = CandidateGenerator(target)
         chunks = [(str(folder / f"{p_index:04d}-{c:05d}.jsonl.gz"), iris[i:i + SHARD])
                   for c, i in enumerate(range(0, len(iris), SHARD))]
+        started, results = time.time(), []
         if len(iris) > 4 * SHARD and workers > 1:
             with mp.get_context("fork").Pool(workers) as pool:
-                results = pool.map(_pair_chunk, chunks, chunksize=1)
+                for result in pool.imap_unordered(_pair_chunk, chunks, chunksize=1):
+                    results.append(result)
+                    done = sum(n for _, n in results)
+                    print("  " + progress_text(spec.pair_id, done, len(iris), done / max(1e-9, time.time() - started),
+                                               "episodes"), flush=True)
         else:
             results = [_pair_chunk(c) for c in chunks]
         for path, n in results:
@@ -187,7 +216,10 @@ def _icd_chunk(args) -> list[dict]:
     icd11, ancestors, items, k = args
     generator = CandidateGenerator(icd11)
     out = []
-    for pair_id, _kind, entity, parent, source_card, _gold, _split, extra in items:
+    for i, (pair_id, _kind, entity, parent, source_card, _gold, _split, extra) in enumerate(items, 1):
+        if _DONE is not None and i % 25 == 0:
+            with _DONE.get_lock():
+                _DONE.value += 25
         ranking = icd.icd_candidates(generator, ancestors, entity, parent, k)
         key = hashlib.sha1(f"{pair_id}|{entity.iri}".encode()).hexdigest()
         order = list(ranking)
@@ -198,15 +230,24 @@ def _icd_chunk(args) -> list[dict]:
     return out
 
 
-def _icd_episodes(icd11, ancestors, items: list, k: int, workers: int) -> list[dict]:
-    from concurrent.futures import ProcessPoolExecutor
+def _icd_episodes(icd11, ancestors, items: list, k: int, workers: int, name: str = "") -> list[dict]:
+    """ICD episodes on `workers` forked processes, with a progress line every REPORT_S seconds."""
+    global _DONE
+    from concurrent.futures import ProcessPoolExecutor, wait
 
     size = max(1, len(items) // (workers * 4))
     chunks = [items[i:i + size] for i in range(0, len(items), size)]
-    episodes: list[dict] = []
-    with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("fork")) as pool:  # as build_pairs
-        for result in pool.map(_icd_chunk, [(icd11, ancestors, chunk, k) for chunk in chunks]):
-            episodes.extend(result)
+    context = mp.get_context("fork")  # as build_pairs
+    _DONE = context.Value("i", 0)
+    started = time.time()
+    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
+        futures = [pool.submit(_icd_chunk, (icd11, ancestors, chunk, k)) for chunk in chunks]
+        while wait(futures, timeout=REPORT_S).not_done:
+            done = _DONE.value
+            print("  " + progress_text(name, done, len(items), done / max(1e-9, time.time() - started), "episodes"),
+                  flush=True)
+        episodes = [e for f in futures for e in f.result()]  # in submission order, as before
+    _DONE = None
     return episodes
 
 
@@ -295,7 +336,7 @@ def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
                 "the ICD-11 entities the WHO tables name", target_entities=len(icd11_info))
     if limit:
         items = items[:limit]
-    episodes = _icd_episodes(icd11, ancestors, items, k=20, workers=build_workers())
+    episodes = _icd_episodes(icd11, ancestors, items, k=20, workers=build_workers(), name=pair_id)
     profiles = pair_profiles.get(pair_id, ("", ""))
     folder = episodes_dir(task)
     manifest: dict = {"task": task.slug, "pairs": {pair_id: info}, "shards": {}}
@@ -312,10 +353,26 @@ def build_icd(task: Task, limit: int, pair_profiles: dict) -> dict:
     return manifest
 
 
+def built_scope(task: Task) -> str | None:
+    """The FULL_EVAL_SCOPE a task's finished episodes were built with (before the switch existed: 'all')."""
+    manifest = episodes_dir(task) / "manifest.json"
+    if not (manifest.parent / "READY").exists():
+        return None
+    return json.loads(manifest.read_text()).get("scope", "all")
+
+
+def stale_tasks(task_list: list[Task]) -> list[str]:
+    """Tasks whose finished episodes belong to the other scope: their replies and scores would not match this run."""
+    return [t.slug for t in task_list if built_scope(t) not in (None, eval_scope())]
+
+
 def build(task: Task, limit: int = 0, workers: int | None = None) -> dict:
     from oa_rlaif.data.render import pair_profiles
 
     folder = episodes_dir(task)
+    if built_scope(task) not in (None, eval_scope()):
+        raise SystemExit(f"{task.slug}: the episodes in {folder} were built with FULL_EVAL_SCOPE={built_scope(task)}; "
+                         f"use a new OA_OUT_DIR for FULL_EVAL_SCOPE={eval_scope()}")
     if (folder / "READY").exists() and not limit:
         return json.loads((folder / "manifest.json").read_text())
     folder.mkdir(parents=True, exist_ok=True)
@@ -327,7 +384,7 @@ def build(task: Task, limit: int = 0, workers: int | None = None) -> dict:
     manifest = build_icd(task, limit, profiles) if task.family in ("icd10", "snomed_icd11") else \
         build_pairs(task, limit, workers, profiles)
     manifest.update(episodes=sum(manifest["shards"].values()), seconds=round(time.time() - started), limit=limit,
-                    giant=task.slug in GIANT)
+                    giant=task.slug in GIANT, scope=eval_scope())
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=1))
     if not limit:
         (folder / "READY").write_text(str(time.time()))

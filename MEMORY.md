@@ -426,3 +426,23 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 - **Finding (worked example, Anatomy episode 18dbf2c35ca182b4):** with 40 candidates and T = 0.1, DRAL-OA's
   probabilities are nearly flat (gold p = 0.077). So NONE on a gold episode earns R_task 0.462 (r_DRAL(NONE) = 0.923),
   against 0.538 for the correct pick. Reported to the user; nothing changed.
+
+## 2026-10-22 — full evaluation: Top-k on the reference classes (supersedes the budget and priority lines of the entry above)
+- **User:** "only [the Top-k] formula, top k = 1, 3, 5"; "no OAEI style".
+- **User's methods:** "thinking off for rest base vs sft vs …"; "agent + thinking on only for all merged".
+- **User on SNOMED:** "Complete ICD scope".
+- **Why:** with $100, the 12-method run on all 1,438,731 classes (~$4,400) would cover about 8%.
+- **Classes:** `FULL_EVAL_SCOPE=reference` (the default) runs every source class with a partner in the reference, which are the classes the formula scores: 299,961 per method, of which 270,290 are run and scored.
+  - The scores equal those of aligning every class, because each class is an independent episode.
+  - The console's s2 Anatomy run aligned all 2,737 classes and scored its top-1 on the 1,497 reference classes.
+  - `reference_classes` in `full_eval/tasks.py` is the one rule shared by the builder and the scorer.
+  - 12 deprecated reference classes are not run and count as misses.
+- **SNOMED CT → ICD-11:** the complete map of ICD's scope (141,182), recounted from RF2:
+  - Clinical finding 132,172, Situation 5,605, Event 3,402, plus the 3 roots;
+  - 136,507 concepts are in the WHO map, 111,591 with a usable target; all of those compose;
+  - 111,511 have a strong link, and Top-k is scored on these.
+- **Methods:** `DEFAULT_METHODS` = base, sft, sdft, grpo, all_merged (thinking off) + `all_merged-agent-think`. `FULL_EVAL_METHODS=all` gives the 12.
+- **Order and money:** each thinking-off method on every task (one load each), then the agent. Cap $425; expected ~$363, ~15 h at $24/h on 4 × B300.
+- **Results:** `results/<task>/<method folder>/` (`1-base`, `2-sft`, `3-opsd`, `4-opsd-grpo`, `5-all-merged`, `6-all-merged-agent`, with `-thinking` when thinking is on), with one `alignment.rdf` and SSSOM file per method and pair. The user asked for the results sorted by dataset.
+- **The full run is kept:** `FULL_EVAL_SCOPE=all` gives every class plus the OAEI scores and the 12 old tables.
+- The run refuses to mix episodes built with another scope.

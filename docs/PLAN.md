@@ -300,3 +300,25 @@ RLAIF/
 - The Hugging Face push (namespace plus your own `hf auth login`).
 - Any Lambda spend. You launch the instance; I only write the scripts.
 - No changes to existing repo files apart from the one-line parent `.gitignore`.
+
+## Full evaluation: Top-k on the reference classes (added 2026-10-22; the text above is unchanged)
+
+The `full-eval` branch, as written, ran 12 methods on all 1,438,731 classes, with OAEI scores and the Top-k
+evaluation. That would cost about $4,400 (about 184 h) on 4 × B300. The user decided the default run below.
+`full_eval/README.md` has the details.
+
+- **Score:** the Top-k evaluation (k = 1, 3, 5), DRAL-OA's `clf.py` formula (`AlignmentEvaluator.topk`). No OAEI
+  scores in the default run.
+- **Classes (`FULL_EVAL_SCOPE=reference`):** every source class with a partner in the reference (299,961 per
+  method). No held-out view.
+  - The scores equal those of aligning every class, because each class is its own episode.
+  - The model never sees the reference.
+- **SNOMED CT → ICD-11:** the complete map of ICD's scope (141,182 concepts). Top-k is scored on the 111,511 concepts
+  with a strong composed link.
+- **Methods:**
+  - base, + SFT, + OPSD, + OPSD → GRPO and All merged with thinking off;
+  - All merged + mini-SWE-agent with thinking on.
+- **Money:** about 15 h and $363 on 4 × B300 at $24/h. The cap is $425.
+- **Results:** `results/<task>/<method folder>/` (for example `results/anatomy__mouse-human/4-opsd-grpo/`). Each
+  folder has one `alignment.rdf` and SSSOM file per method and pair. All of them are uploaded as separate files.
+- **The complete evaluation is still available:** `FULL_EVAL_SCOPE=all FULL_EVAL_METHODS=all`.

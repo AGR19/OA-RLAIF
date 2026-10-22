@@ -1,5 +1,6 @@
-"""full_eval/: what counts as a class to align, the methods and their order, the scoring rules (OAEI scores and the
-Top-k evaluation, full alignments only), the money planner, thinking replies and the agent's replies."""
+"""full_eval/: which classes run (FULL_EVAL_SCOPE: the reference classes by default, every class with 'all'), the
+methods and their order, the scoring rules (the Top-k evaluation; OAEI scores with 'all'; no held-out view), the money
+planner, thinking replies, the agent's replies and the report."""
 
 from __future__ import annotations
 
@@ -51,27 +52,41 @@ def test_deprecated_scan_reads_rdfxml_entities_and_functional_syntax(tmp_path, m
     assert tasks.deprecated_iris(ofn) == {"http://snomed.info/id/123"}
 
 
-def test_unit_order_thinking_off_then_on_then_bioml():
+def test_unit_order_each_method_on_every_task_thinking_off_first():
+    """Each thinking-off method on every task (small, SNOMED CT -> ICD-11, Bio-ML), so it loads once; then thinking on."""
     order = schedule.units(["grpo", "all_merged-agent", "grpo-think"],
                            ["anatomy__mouse-human", "dh", "icd__snomed-to-icd11", "bioml__NCIT-DOID"])
-    assert order == [("grpo", "anatomy__mouse-human"), ("grpo", "dh"), ("all_merged-agent", "anatomy__mouse-human"),
-                     ("all_merged-agent", "dh"), ("grpo", "icd__snomed-to-icd11"),
-                     ("all_merged-agent", "icd__snomed-to-icd11"),
-                     ("grpo-think", "anatomy__mouse-human"), ("grpo-think", "dh"), ("grpo-think", "icd__snomed-to-icd11"),
-                     ("grpo", "bioml__NCIT-DOID"), ("all_merged-agent", "bioml__NCIT-DOID"),
-                     ("grpo-think", "bioml__NCIT-DOID")]
+    tasks_in_order = ["anatomy__mouse-human", "dh", "icd__snomed-to-icd11", "bioml__NCIT-DOID"]
+    assert order == [(m, t) for m in ("grpo", "all_merged-agent", "grpo-think") for t in tasks_in_order]
 
 
-def test_methods_six_with_thinking_off_and_on(monkeypatch):
+def test_default_methods_five_models_thinking_off_and_the_agent_thinking_on(monkeypatch):
     assert len(schedule.METHODS) == 12 and "all_merged-agent-think" in schedule.METHODS
     m = schedule.method("all_merged-agent-think")
     assert (m.model, m.think, m.agent, m.kind, m.base) == ("all_merged", True, True, "agent-think", "all_merged-agent")
     assert schedule.method("grpo").kind == "decide" and schedule.label("sft-think") == "+ SFT, thinking on"
+    for name in ("FULL_EVAL_METHODS", "FULL_EVAL_MODELS", "FULL_EVAL_THINKING", "FULL_EVAL_BUDGET_USD"):
+        monkeypatch.delenv(name, raising=False)
+    assert schedule.selected_methods() == ["grpo", "sft", "all_merged", "sdft", "base", "all_merged-agent-think"]
     monkeypatch.setenv("FULL_EVAL_THINKING", "off")
+    assert schedule.selected_methods() == schedule.MODELS
+    monkeypatch.setenv("FULL_EVAL_METHODS", "all")
     assert schedule.selected_methods() == schedule.METHODS_OFF
-    monkeypatch.delenv("FULL_EVAL_BUDGET_USD", raising=False)
+    monkeypatch.delenv("FULL_EVAL_THINKING")
+    assert schedule.selected_methods() == schedule.METHODS
     monkeypatch.setenv("FULL_EVAL_FAKE", "lexical")
-    assert schedule.Budget().cap == 100.0
+    assert schedule.Budget().cap == 425.0
+
+
+def test_estimates_count_the_classes_each_scope_runs(monkeypatch, tmp_path):
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    monkeypatch.delenv("FULL_EVAL_SCOPE", raising=False)
+    assert sum(schedule.ESTIMATES["reference"].values()) == 299_961
+    assert schedule.decisions("anatomy__mouse-human") == (1_497, False)
+    assert schedule.decisions("icd__snomed-to-icd11") == (141_182, False)  # the complete map in either scope
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "everything")
+    with pytest.raises(SystemExit):
+        tasks.eval_scope()
 
 
 def test_planner_starts_only_units_that_fit_the_money(monkeypatch, tmp_path):
@@ -87,6 +102,86 @@ def test_planner_starts_only_units_that_fit_the_money(monkeypatch, tmp_path):
     plan = schedule.project([("m", "a"), ("m", "b"), ("m", "c")], budget, speed, loaded="m")
     assert [p["fits"] for p in plan] == [True, False, True]  # $1 fits, $10 does not, $0.10 still fits after it
     assert plan[0]["usd"] == pytest.approx(1.0, abs=0.01)
+
+
+def reference_pair(tmp_path, monkeypatch):
+    """A pair whose reference has: m#1 = h#1, m#2 = h#2 (m#2 deprecated), h#3 = m#3 written target -> source, and a
+    link to a class of neither ontology. m#4 and m#5 have no partner."""
+    from oa_rlaif.data.families import PairSpec
+    from oa_rlaif.ontology.alignment_io import write_oaei_rdf
+    from oa_rlaif.ontology.models import Alignment
+
+    source = profile(*(entity(f"http://m#{i}", f"m{i}") for i in range(1, 6)))
+    target = profile(*(entity(f"http://h#{i}", f"h{i}") for i in range(1, 4)))
+    ref = tmp_path / "reference.rdf"
+    write_oaei_rdf(ref, [Alignment("http://m#1", "http://h#1", "=", 1.0, "ref"),
+                         Alignment("http://m#2", "http://h#2", "=", 1.0, "ref"),
+                         Alignment("http://h#3", "http://m#3", "=", 1.0, "ref"),
+                         Alignment("http://m#5", "http://x#9", "=", 1.0, "ref")])
+    spec = PairSpec("test/m-h", "anatomy", tmp_path / "m.owl", tmp_path / "h.owl", [ref])
+    monkeypatch.setattr(score, "load_profile_any", lambda path: source if path.name == "m.owl" else target)
+    monkeypatch.setattr(score, "zero_shot_pairs", lambda: set())
+    return spec, source, target
+
+
+def test_reference_scope_runs_exactly_the_classes_topk_scores(tmp_path, monkeypatch):
+    """The builder (sources_to_align) and the scorer (PairScorer.partners) use one rule: the classes with a reference
+    partner between the two ontologies. Deprecated reference classes are not run and count as misses."""
+    from full_eval.build_episodes import sources_to_align
+
+    spec, source, target = reference_pair(tmp_path, monkeypatch)
+    task = tasks.Task("t", "anatomy", "Anatomy", [spec])
+    partners = score.PairScorer(spec, oaei=False).partners()
+    assert partners == {"http://m#1": {"http://h#1"}, "http://m#2": {"http://h#2"}, "http://m#3": {"http://h#3"}}
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "reference")
+    iris, info = sources_to_align(task, spec, source, target, {"http://m#2"})
+    assert iris == ["http://m#1", "http://m#3"]
+    assert info == {"scope": "reference", "reference_classes": 3, "reference_classes_left_out": 1}
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "all")
+    assert sources_to_align(task, spec, source, target, {"http://m#2"})[0] == [f"http://m#{i}" for i in (1, 3, 4, 5)]
+
+
+def test_reference_scope_scores_topk_and_writes_the_alignment_without_oaei(tmp_path, monkeypatch):
+    spec, _, _ = reference_pair(tmp_path, monkeypatch)
+    task = tasks.Task("t", "anatomy", "Anatomy", [spec])
+
+    def rec(src, target, ranking):
+        return {"pair_id": spec.pair_id, "source_iri": src, "source_label": src, "decision": "match",
+                "targets": [target], "target_labels": [target], "relation": "=", "confidence": 0.9,
+                "candidates": ranking, "ranking": ranking}
+
+    records = [rec("http://m#1", "http://h#1", ["http://h#1", "http://h#2"]),
+               rec("http://m#3", "http://h#2", ["http://h#2", "http://h#3"])]
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "reference")
+    out = score.score_pairs("grpo", task, {spec.pair_id: records}, tmp_path / "out")
+    pair = out["pairs"][spec.pair_id]
+    assert "oaei" not in pair and out["oaei"] == {}
+    assert pair["topk"]["classes_scored"] == 3 and pair["reference_classes_not_aligned"] == 1  # m#2: deprecated
+    assert pair["topk"]["k"][1]["Precision"] == pytest.approx(1 / 3) and pair["topk"]["k"][3]["Recall"] == pytest.approx(2 / 3)
+    assert (tmp_path / "out" / "pairs" / "test__m-h" / "alignment.rdf").exists()  # one file per method and pair
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "all")
+    assert "oaei" in score.score_pairs("grpo", task, {spec.pair_id: records}, tmp_path / "all")["pairs"][spec.pair_id]
+
+
+def test_reference_scope_report_has_topk_tables_only(tmp_path, monkeypatch):
+    from full_eval import report
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    monkeypatch.setenv("FULL_EVAL_SCOPE", "reference")
+    for name in ("FULL_EVAL_METHODS", "FULL_EVAL_MODELS", "FULL_EVAL_THINKING"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / "full_eval").mkdir()
+    k = {str(k): {"Precision": 0.9, "Recall": 0.8, "F-measure": 0.85} for k in (1, 3, 5)}
+    unit = {"anatomy__mouse-human": {"pairs": {"anatomy/mouse-human": {
+        "zero_shot": False, "retrieval_ceiling": 0.97, "topk": {"classes_scored": 1497, "k": k}}},
+        "behaviour": {"classes": 1497, "match": 0.95, "none": 0.04, "invalid": 0.01, "prompt_tokens_per_class": 900,
+                      "completion_tokens_per_class": 40}, "runtime_s": 30}}
+    monkeypatch.setattr(report, "collect", lambda: {"grpo": unit, "all_merged-agent-think": unit})
+    built = report.build()
+    md = (tmp_path / "full_eval" / "report.md").read_text()
+    assert set(built["tables"]) == {"t1", "t2", "t3", "t4", "t5"} and built["scope"] == "reference"
+    assert "F-Measure" not in md and "Recall+" not in md and "OAEI score" not in md  # the OAEI 2026 track is named
+    assert "Top-k evaluation (k = 1, 3, 5)" in md and "All merged + mini-SWE-agent, thinking on" in md
 
 
 def test_full_alignment_scores_every_reference_link():
@@ -222,3 +317,18 @@ def test_biodiv2026_is_its_own_zero_shot_column_and_never_training_data():
     task = next(t for t in tasks.tasks() if t.slug == "biodiv2026")
     assert task.column == "Biodiv 2026" and task.classes_only
     assert {s.pair_id for s in specs} <= tasks.zero_shot_pairs()
+
+
+def test_results_are_sorted_by_dataset_then_method(tmp_path, monkeypatch):
+    """results/<task>/<method folder>/, method folders numbered in table order; thinking on adds -thinking."""
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    names = [schedule.folder_name(t) for t in ("base", "sft", "sdft", "grpo", "all_merged", "all_merged-agent-think")]
+    assert names == ["1-base", "2-sft", "3-opsd", "4-opsd-grpo", "5-all-merged", "6-all-merged-agent-thinking"]
+    assert schedule.results_dir("grpo", "anatomy__mouse-human") == \
+        tmp_path / "full_eval" / "results" / "anatomy__mouse-human" / "4-opsd-grpo"
+
+
+def test_progress_line_has_a_bar_counts_speed_and_time_left():
+    line = schedule.progress_text("icd/who-icd10-to-icd11", 5_300, 12_597, 12.4, "episodes")
+    assert line.startswith("icd/who-icd10-to-icd11 [") and " 42.1% 5,300/12,597 episodes · 12.4/s · ETA 0:09:48" in line
+    assert schedule.bar(0, 0) == "[" + "-" * 24 + "]   0.0%" and schedule.clock(None) == "?"
