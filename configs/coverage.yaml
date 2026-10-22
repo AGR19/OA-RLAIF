@@ -21,6 +21,8 @@
 #   provenance          -> licences, codeowners, web assets, screenshots: recorded in DATA_CARD.md
 #   converted_source    -> input of a converter whose output the pipeline reads instead (cybersecurity/ ->
 #                          `python -m oa_rlaif.data.cyber` -> data/external/cyber/, the IoTSec -> UCO pair)
+#   full_eval_only      -> test cases added after training (biodiv-2026/, OAEI 2026 Biodiversity and Ecology):
+#                          read only by the full evaluation, never training data
 data_bearing: [ontology, candidate_pool, gold_reference, complex_reference, trivial_reference, icd_bridge, icd_crosscheck,
                snomed_facts, snomed_mapping, snomed_history, system_output, baseline_metrics,
                knowledge_passage]
@@ -31,6 +33,9 @@ rules:
   - {glob: "Deeper_and_Deeper_*.pdf", role: knowledge_passage, family: dral_oa_paper}
 
   # ---------------- Cybersecurity (IoTSec -> UCO; moved from Advanced-Cybersecurity-OA, 2026-10-22) ----------------
+  - {glob: "biodiv-2026/*/component/parameters.xml", role: provenance, family: biodiv2026}
+  - {glob: "biodiv-2026/*/component/*.xml", role: full_eval_only, family: biodiv2026}
+  - {glob: "biodiv-2026/**", role: provenance, family: biodiv2026}
   - {glob: "cybersecurity/ontologies/*", role: converted_source, family: cyber}
   - {glob: "cybersecurity/reference.csv", role: converted_source, family: cyber}
   - {glob: "cybersecurity/id-tables/*.csv", role: converted_source, family: cyber}
