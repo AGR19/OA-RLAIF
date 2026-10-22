@@ -9,7 +9,7 @@
 #
 # Steps: 1 setup (price, packages, Python env, agent sandbox)  2 Hugging Face login  3 inputs from the private repos
 #        4 the run (models rebuilt, episodes built, GPUs, scoring, report)  5 upload of every output to the
-#        private dataset <you>/oa-rlaif-full-eval. Logs: outputs/full_eval/logs/. Run the same command again after any
+#        private dataset <you>/oa-rlaif-full-eval-results. Logs: outputs/full_eval/logs/. Run the same command again after any
 #        stop: finished work is kept.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -37,5 +37,5 @@ set -a; . ./.env; set +a
 .venv/bin/python -m full_eval.push_results 2>&1 | tee -a outputs/full_eval/logs/push_results.log
 NS="$(.venv/bin/python -c "from oa_rlaif.data.hf_push import namespace; print(namespace())")"
 echo
-echo "DONE. Report: outputs/full_eval/report.md; everything: https://huggingface.co/datasets/$NS/oa-rlaif-full-eval (private)"
+echo "DONE. Report: outputs/full_eval/report.md; everything: https://huggingface.co/datasets/$NS/oa-rlaif-full-eval-results (private)"
 echo "NOW DESTROY THE VAST.AI INSTANCE in the console (a stopped instance still bills for its disk)."

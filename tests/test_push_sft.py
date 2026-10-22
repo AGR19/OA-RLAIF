@@ -48,14 +48,14 @@ def test_push_sft_uploads_everything_privately(tmp_path, monkeypatch):
     monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
     monkeypatch.setattr(push_sft, "namespace", lambda: "me")
     assert push_sft.main([]) == 0
-    assert ("create", "me/oa-rlaif-e4b-sft", True) in calls and ("create", "me/oa-rlaif-e4b-sft-merged", True) in calls
+    assert ("create", "me/oa-rlaif-e4b-sft-weights", True) in calls and ("create", "me/oa-rlaif-e4b-sft-model-safetensors", True) in calls
     commit = next(c for c in calls if c[0] == "commit")
-    assert commit[1] == "me/oa-rlaif-e4b-sft"
+    assert commit[1] == "me/oa-rlaif-e4b-sft-weights"
     paths = set(commit[2])
     assert {"adapter_model.safetensors", "adapter_config.json", "eval/metrics.json", "eval/agent/summary.json",
             "logs/stage_sft.log", "plan.json", "README.md"} <= paths
     large = next(c for c in calls if c[0] == "large")
-    assert large[1] == "me/oa-rlaif-e4b-sft-merged" and "README.md" in large[2] and large[3] is True
+    assert large[1] == "me/oa-rlaif-e4b-sft-model-safetensors" and "README.md" in large[2] and large[3] is True
     merged_card = next(c[2] for c in calls if c[0] == "card")
     assert "base_model: google/gemma-4-E4B-it" in merged_card and "library_name: transformers" in merged_card
 
@@ -96,5 +96,5 @@ def test_push_all_merged(tmp_path, monkeypatch):
     monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
     monkeypatch.setattr(push_all_merged, "namespace", lambda: "me")
     assert push_all_merged.main([]) == 0
-    assert ("create", "me/oa-rlaif-e4b-all-merged", True) in calls and ("large", "me/oa-rlaif-e4b-all-merged", True) in calls
+    assert ("create", "me/oa-rlaif-e4b-all-combined-model-safetensors", True) in calls and ("large", "me/oa-rlaif-e4b-all-combined-model-safetensors", True) in calls
     assert {"eval/metrics.json", "report/report.md", "README.md"} <= set(next(c[1] for c in calls if c[0] == "commit"))

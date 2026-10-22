@@ -152,12 +152,12 @@ System outputs and leaderboards are **never** used as gold. They serve only as h
   - You run `hf auth login` yourself and set `HF_NAMESPACE`. I never handle the token.
   - Every push needs your OK in chat.
 - **Dataset repos (private):**
-  - `{ns}/oa-rlaif-datasource`: datasource passages and questions, closed-book test.
-  - `{ns}/oa-rlaif-sdft`: all OPSD prompts with privileged context, covering facts, alignment, multilingual, complex and agent turns.
-  - `{ns}/oa-rlaif-grpo`: GRPO episodes, gold, candidates and eval splits.
-  - `{ns}/oa-rlaif-dral-reward`: the RL reward function artifacts (mapping-layer weights, entity embeddings per pair, Eq. 1 config).
-  - `{ns}/oa-rlaif-icd-triangulation`: SSSOM silver links and bridge splits.
-- **Model repos (private, pushed from Lambda):** `{ns}/oa-rlaif-e4b-sdft`, `{ns}/oa-rlaif-e4b-grpo` (LoRA adapters + GGUF).
+  - `{ns}/oa-rlaif-datasource-qa-data`: datasource passages and questions, closed-book test.
+  - `{ns}/oa-rlaif-opsd-sft-data`: all OPSD prompts with privileged context, covering facts, alignment, multilingual, complex and agent turns.
+  - `{ns}/oa-rlaif-grpo-data`: GRPO episodes, gold, candidates and eval splits.
+  - `{ns}/oa-rlaif-dral-reward-data`: the RL reward function artifacts (mapping-layer weights, entity embeddings per pair, Eq. 1 config).
+  - `{ns}/oa-rlaif-icd-bridge-data`: SSSOM silver links and bridge splits.
+- **Model repos (private, pushed from Lambda):** `{ns}/oa-rlaif-e4b-opsd-weights`, `{ns}/oa-rlaif-e4b-grpo-weights` (LoRA adapters + GGUF).
 
 ## Context
 The existing repo `oa-sft-sm-1` was built for Inkling/Tinker SFT. That work is discontinued. Its only measured result is a lexical baseline: Anatomy test F=0.274, Hits@1=0.774.
@@ -289,7 +289,7 @@ RLAIF/
 13. **Publish:**
     - `git init` inside `RLAIF/` and add `RLAIF/` to the parent repo's `.gitignore` (a one-line change).
     - `gh repo create AGR19/OA-RLAIF --private --source RLAIF --push`, with the standard co-author trailer.
-    - Hugging Face push to private `{ns}/oa-rlaif-{knowledge,sdft,grpo,dral-reward,icd-triangulation}` only after you run `hf auth login` and give the namespace in chat.
+    - Hugging Face push to private `{ns}/oa-rlaif-{datasource-qa,opsd-sft,grpo,dral-reward,icd-bridge}-data` (renamed 2026-10-22; first pushed as oa-rlaif-{knowledge,sdft,grpo,dral-reward,icd-triangulation}) only after you run `hf auth login` and give the namespace in chat.
 14. **Memory:** save the user's preferences (2026-era methods, knowledge in weights rather than RAG, $500 cap, private repos) to auto-memory.
 
 ## Verification

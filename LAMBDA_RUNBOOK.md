@@ -44,9 +44,9 @@ scripts/80_verify_and_push.sh       # tests + verification gate (add --hf to pus
 - TensorBoard `monitor/*` (invalid rate, gold accuracy, NONE share, DRAL mean);
 - `judge_fallbacks` in the log.
 
-**Optional: keep the SFT comparison model.** The one-command run uploads only its scores. To also keep its weights, run `scripts/push_sft.sh` after step 13 (and again after step 14 to add its evaluation). It creates two private repos: `<you>/oa-rlaif-e4b-sft` (LoRA adapter + evaluation + logs) and `<you>/oa-rlaif-e4b-sft-merged` (merged model, about 16 GB, resumable upload). `scripts/push_sft.sh --dry-run` lists what would be uploaded.
+**Optional: keep the SFT comparison model.** The one-command run uploads only its scores. To also keep its weights, run `scripts/push_sft.sh` after step 13 (and again after step 14 to add its evaluation). It creates two private repos: `<you>/oa-rlaif-e4b-sft-weights` (LoRA adapter + evaluation + logs) and `<you>/oa-rlaif-e4b-sft-model-safetensors` (merged model, about 16 GB, resumable upload). `scripts/push_sft.sh --dry-run` lists what would be uploaded.
 
-**Optional research variant: all merged.** After DONE, `scripts/all_merged.sh` adds the SFT adapter onto the GRPO model (base + OPSD + GRPO + SFT; the SFT weight change is summed in) and runs the same evaluations as for GRPO. Its own comparison tables (base, SFT, OPSD, GRPO and All merged) go to `outputs/all_merged_report/`; the main report is unchanged. `--push` uploads everything all-merged to its own private repo `<you>/oa-rlaif-e4b-all-merged` (weights, evaluation, comparison report); nothing goes into the existing repos. `--no-full` skips the whole-Anatomy alignment. It takes about 1–1.5 h of machine time, and the released GGUF does not change.
+**Optional research variant: all merged.** After DONE, `scripts/all_merged.sh` adds the SFT adapter onto the GRPO model (base + OPSD + GRPO + SFT; the SFT weight change is summed in) and runs the same evaluations as for GRPO. Its own comparison tables (base, SFT, OPSD, GRPO and All merged) go to `outputs/all_merged_report/`; the main report is unchanged. `--push` uploads everything all-merged to its own private repo `<you>/oa-rlaif-e4b-all-combined-model-safetensors` (weights, evaluation, comparison report); nothing goes into the existing repos. `--no-full` skips the whole-Anatomy alignment. It takes about 1–1.5 h of machine time, and the released GGUF does not change.
 
 ## 3. Results
 - `outputs/eval/<tag>/metrics.json` for base, sdft and grpo;
@@ -87,11 +87,11 @@ The terminal shows a live dashboard: the total progress bar, the current step (e
 | 9 | grpo | Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), then merge | ≤ 4 h |
 | 10 | eval_grpo | held-out, zero-shot, ICD-11↔SNOMED, full Anatomy alignment (OAEI row), agent episodes | 70 m |
 | 11 | export | GGUF Q4_K_M + Ollama Modelfile (base + OPSD + GRPO in one file) | 30 m |
-| 12 | push | private HF: `oa-rlaif-e4b-gguf`, `-sdft`, `-grpo` (the GGUF is safe from here) | 15 m |
+| 12 | push | private HF: `oa-rlaif-e4b-opsd-grpo-model-gguf`, `-sdft`, `-grpo` (the GGUF is safe from here) | 15 m |
 | 13 | sft | **compulsory** SFT comparison: same rows and same step count as OPSD, then merge | ≤ 2 h |
 | 14 | eval_sft | SFT model: held-out sets + agent episodes | 45 m |
 | 15 | report | results tables: base / SFT / OPSD / OPSD→GRPO, ICD-11↔SNOMED, agents, OAEI row | 2 m |
-| 16 | results | private HF dataset `oa-rlaif-results` (tables, metrics, ICD-11↔SNOMED SSSOM) | 5 m |
+| 16 | results | private HF dataset `oa-rlaif-heldout-eval-results` (tables, metrics, ICD-11↔SNOMED SSSOM) | 5 m |
 
 At 4×B200 the total is about 16 h and stays under the $450 stop. Steps 3–5 are the safety checks: a problem shows within the first hour. The plan is in dollars: after the dry run, the money left minus the fixed stages (less a 5% reserve) is shared OPSD 40%, GRPO 40%, SFT 20%, and each stage runs the steps its share pays for (`outputs/step_plan.json`), re-checked at the start of each stage.
 
@@ -99,4 +99,4 @@ The SFT arm is part of every run (it is not optional). It runs after the GGUF pu
 
 **If a step fails**, the dashboard marks it ✖ and prints the end of its log. Fix the cause, then run `scripts/lambda_all.sh` again; finished steps are skipped.
 
-**When it prints DONE**, your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-gguf` (private). **Terminate the instance** in the Lambda console; billing continues until you do.
+**When it prints DONE**, your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-opsd-grpo-model-gguf` (private). **Terminate the instance** in the Lambda console; billing continues until you do.

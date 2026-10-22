@@ -3,12 +3,12 @@
     python -m oa_rlaif.data.push_sft             # after step 13 (sft); run again after step 14 to add the evaluation
     python -m oa_rlaif.data.push_sft --dry-run   # list what would be uploaded, upload nothing
 
-{ns}/oa-rlaif-e4b-sft           the LoRA adapter (outputs/checkpoints/sft/final), one commit with
+{ns}/oa-rlaif-e4b-sft-weights           the LoRA adapter (outputs/checkpoints/sft/final), one commit with
                                 eval/        its held-out and closed-book results (outputs/eval/sft)
                                 eval/agent/  its mini-SWE-agent runs (outputs/agent_runs/sft)
                                 logs/        step logs and TensorBoard training curves
                                 plan.json    its step plan and dry-run timing
-{ns}/oa-rlaif-e4b-sft-merged    the merged model (outputs/merged/sft), resumable upload of the large weights
+{ns}/oa-rlaif-e4b-sft-model-safetensors    the merged model (outputs/merged/sft), resumable upload of the large weights
 
 Both repos are private (checked after creation) and carry our own model card: the trainer's README.md is never
 uploaded (its metadata can name a local folder, which the Hub rejects). SFT starts from the plain base model, so the
@@ -24,26 +24,16 @@ import sys
 from pathlib import Path
 
 from ..paths import out_dir
-from .hf_push import BASE_MODEL, namespace
+from .hf_push import namespace
 
-ADAPTER_REPO, MERGED_REPO = "oa-rlaif-e4b-sft", "oa-rlaif-e4b-sft-merged"
+ADAPTER_REPO, MERGED_REPO = "oa-rlaif-e4b-sft-weights", "oa-rlaif-e4b-sft-model-safetensors"
 LOGS = ["stage_sft.log", "stage_eval_sft.log", "eval_sft.log", "agent_eval_sft.log", "vllm_agent_sft.log",
         "dry_run_sft.log"]
-CARDS = {
-    ADAPTER_REPO: ("peft", "SFT comparison arm of OA-RLAIF: a LoRA adapter for `google/gemma-4-E4B-it`, trained with "
-                           "plain supervised fine-tuning on the same rows, steps, learning rate and batch as Stage 1 "
-                           "(OPSD). Apply it to the base model. `eval/` holds its held-out, closed-book and agent "
-                           "results; `logs/` its training and evaluation logs; `plan.json` its step plan."),
-    MERGED_REPO: ("transformers", "SFT comparison arm of OA-RLAIF: `google/gemma-4-E4B-it` with the SFT LoRA adapter "
-                                  "(`oa-rlaif-e4b-sft`) merged into the weights. Load it like the base model."),
-}
-
-
 def card(name: str) -> str:
-    library, text = CARDS[name]
-    return (f"---\nlicense: other\nlicense_name: mixed-private\nbase_model: {BASE_MODEL}\nlibrary_name: {library}\n"
-            f"tags: [ontology-matching, sft, oa-rlaif, comparison]\n---\n# {name} (private)\n\n{text}\n\n"
-            "Part of OA-RLAIF (github.com/AGR19/OA-RLAIF, private).\n")
+    """Our own card (oa_rlaif.data.hf_cards); the trainer's README is never uploaded."""
+    from .hf_cards import card as hf_card
+
+    return hf_card(name)
 
 
 def adapter_files(out: Path) -> list[tuple[Path, str]]:

@@ -407,3 +407,22 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - IoTSec→UCO (raw folder `cybersecurity/`) gets its own Cybersecurity column.
 - `oa_rlaif.eval.thinking.split` separates Gemma 4's thinking channel from the answer. It is the same function in `full_eval/infer.py` and `om_agent/`.
 - The method figure now shows SFT as a trained arm that feeds the merged model, and has no compute footer.
+
+## 2026-10-22 — Hugging Face repos renamed (user: "call weight a weight … and model a model")
+- **Weights** (LoRA adapters): `oa-rlaif-e4b-sdft` → `oa-rlaif-e4b-opsd-weights`; `-grpo` → `-grpo-weights`;
+  `-sft` → `-sft-weights`.
+- **Models**: `oa-rlaif-e4b-gguf` → `oa-rlaif-e4b-opsd-grpo-model-gguf`; `-all-merged` →
+  `-all-combined-model-safetensors`; `-sft-merged` → `-sft-model-safetensors`. New: `-all-combined-model-gguf`, to be
+  converted on Hugging Face Jobs (not locally; user's request). The job needs the token's "Jobs" permission.
+- **Data / results**: `oa-rlaif-datasource` → `-datasource-qa-data`; `-sdft` → `-opsd-sft-data`; `-grpo` →
+  `-grpo-data`; `-dral-reward` → `-dral-reward-data`; `-icd-triangulation` → `-icd-bridge-data`; `-raw` →
+  `-raw-data`; `-results` → `-heldout-eval-results`; `full_eval` pushes to `-full-eval-results`.
+- Hugging Face redirects the old names. Code, scripts and docs use the new names. Entries above this one keep the
+  names of their time.
+- Cards come from `oa_rlaif.data.hf_cards`: the naming table, how each repo was made, the GRPO reward with a worked
+  example (computed with the training code), and real samples. `pipeline_tag: text-generation`; the Hub had shown
+  image-text-to-text from Gemma 4's config.
+- **User:** do not change anything in `oa-rlaif-raw-data` (the raw ontologies). `hf_cards` refuses to write there.
+- **Finding (worked example, Anatomy episode 18dbf2c35ca182b4):** with 40 candidates and T = 0.1, DRAL-OA's
+  probabilities are nearly flat (gold p = 0.077). So NONE on a gold episode earns R_task 0.462 (r_DRAL(NONE) = 0.923),
+  against 0.538 for the correct pick. Reported to the user; nothing changed.

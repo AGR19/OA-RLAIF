@@ -1,4 +1,4 @@
-"""Mac -> private HF dataset <you>/oa-rlaif-raw: everything the full evaluation reads on the GPU box. Resumable.
+"""Mac -> private HF dataset <you>/oa-rlaif-raw-data: everything the full evaluation reads on the GPU box. Resumable.
 
     PYTHONPATH=src:. .venv/bin/python full_eval/push_inputs.py [--dry-run]
 
@@ -22,14 +22,14 @@ import sys
 from oa_rlaif.data.profiles import cache_key, is_cached
 from oa_rlaif.paths import bioml_dir, data_dir, raw_dir, relative_to_raw
 
-REPO = "oa-rlaif-raw"
+REPO = "oa-rlaif-raw-data"
 IGNORE = ["*.pdf", "**/*.pdf", ".DS_Store", "**/.DS_Store", "**/__pycache__/**"]
 CARD = """---
 license: other
 license_name: mixed-private
 tags: [ontology-matching, oa-rlaif, private]
 ---
-# oa-rlaif-raw (private)
+# oa-rlaif-raw-data (private)
 
 Inputs of the OA-RLAIF full-alignment evaluation (github.com/AGR19/OA-RLAIF, `full_eval/`): the supplied raw ontology
 folders (without PDFs), the Bio-ML 2026 download, the IoTSec -> UCO pair, the modelling profiles and the parsed-ontology

@@ -75,7 +75,7 @@ scripts/coreweave_all.sh
 
 If your connection drops, run `tmux attach -t run`. If a step fails, fix the cause and run `scripts/coreweave_all.sh` again; finished steps are skipped. After a pod restart, run the same command: Docker is reinstalled or restarted automatically.
 
-**When it prints DONE:** your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-gguf` (private). Then **release the node**: delete the pod or instance, or scale its node pool to 0. Billing continues until you do.
+**When it prints DONE:** your GGUF is at `huggingface.co/<you>/oa-rlaif-e4b-opsd-grpo-model-gguf` (private). Then **release the node**: delete the pod or instance, or scale its node pool to 0. Billing continues until you do.
 
 ## 3. What the budget buys
 

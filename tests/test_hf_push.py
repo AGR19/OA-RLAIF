@@ -26,14 +26,15 @@ def test_model_push_order_and_cards(tmp_path, monkeypatch):
     monkeypatch.setattr(hf_push, "namespace", lambda: "me")
     hf_push.push_models()
     folders = [c for c in calls if c[0] == "folder"]
-    assert folders[0][1] == "me/oa-rlaif-e4b-gguf"                         # the deliverable first
+    assert folders[0][1] == "me/oa-rlaif-e4b-opsd-grpo-model-gguf"                         # the deliverable first
     assert all(c[2] == ["README.md"] for c in folders)                    # trainer READMEs never uploaded
     cards = {c[1]: c[2] for c in calls if c[0] == "card"}
     assert set(cards) == {f"me/{n}" for n in hf_push.MODELS}
     for text in cards.values():
         base = re.search(r"^base_model: (.+)$", text, re.M).group(1)
         assert base == "google/gemma-4-E4B-it" and "outputs/" not in base
-    assert "merge the `oa-rlaif-e4b-sdft` adapter" in cards["me/oa-rlaif-e4b-grpo"]
+    assert "trained on base + OPSD, not on the plain base. Merge OPSD first" in cards["me/oa-rlaif-e4b-grpo-weights"]
+    assert all("pipeline_tag: text-generation" in text for text in cards.values())
 
 
 def test_results_repo_never_gets_all_merged(tmp_path, monkeypatch, capsys):

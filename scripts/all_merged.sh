@@ -9,8 +9,8 @@
 #                                     OPSD, GRPO and All merged). The main report (outputs/eval/report.md) is unchanged.
 #   scripts/all_merged.sh --no-full   without the whole-Anatomy alignment (saves about 25 minutes)
 #   scripts/all_merged.sh --push      also upload everything all-merged to its OWN private repo
-#                                     <you>/oa-rlaif-e4b-all-merged (weights, evaluation, comparison report). Nothing
-#                                     goes into the existing repos (oa-rlaif-results, the GGUF, the adapters).
+#                                     <you>/oa-rlaif-e4b-all-combined-model-safetensors (weights, evaluation, comparison report). Nothing
+#                                     goes into the existing repos (oa-rlaif-heldout-eval-results, the GGUF, the adapters).
 #
 # Run it after the one-command run has printed DONE: it needs steps 9 (grpo) and 13 (sft), and it uses the same
 # GPUs and port as the run's evaluations (its start-up clears servers left in this folder, so it must not overlap).

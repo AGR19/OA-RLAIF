@@ -90,11 +90,17 @@ The agent's task folder holds only the public episode (`harness.sandbox.public_e
 ## Hugging Face push
 
 Private repos only. `scripts/80_verify_and_push.sh --hf` creates and uploads them once the gates pass.
-- Datasets: `{ns}/oa-rlaif-datasource`, `-sdft`, `-grpo`, `-dral-reward`, `-icd-triangulation`.
-- Models (pushed by `lambda_all.sh` at the end):
-  - `{ns}/oa-rlaif-e4b-gguf`: Q4_K_M + Modelfile; base + OPSD + GRPO merged.
-  - `{ns}/oa-rlaif-e4b-sdft` and `-grpo`: LoRA adapters.
-  - Dataset `{ns}/oa-rlaif-results`.
+Naming (renamed 2026-10-22): **weights** = LoRA adapters that need the base model; **model** = a complete model
+that runs as it is; **data** / **results** = datasets.
+- Data: `{ns}/oa-rlaif-datasource-qa-data`, `-opsd-sft-data` (the rows OPSD and SFT both train on), `-grpo-data`,
+  `-dral-reward-data`, `-icd-bridge-data`, `-raw-data` (the raw folders, for the full evaluation).
+- Weights: `{ns}/oa-rlaif-e4b-opsd-weights`, `-grpo-weights` (on top of the merged OPSD model), `-sft-weights`.
+- Models: `{ns}/oa-rlaif-e4b-opsd-grpo-model-gguf` (Q4_K_M + Modelfile; base + OPSD + GRPO merged),
+  `-sft-model-safetensors`, `-all-combined-model-safetensors` (base + OPSD → GRPO + SFT) and
+  `-all-combined-model-gguf` (the same, Q4_K_M, converted on HF Jobs).
+- Cards: `python -m oa_rlaif.data.hf_cards [--push]` writes every card (naming, training, the GRPO reward, real
+  samples). `oa-rlaif-raw-data` holds the raw ontologies and is never changed by it.
+- Results: `{ns}/oa-rlaif-heldout-eval-results` (the earlier held-out evaluation), `-full-eval-results`.
 
 The user runs `hf auth login` and sets `HF_NAMESPACE`. Never handle the token, and get the user's OK in chat before each push.
 

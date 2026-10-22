@@ -87,7 +87,7 @@ owl:Thing, 8 oboInOwl bookkeeping classes and the UNDEFINED_is_a/part_of placeho
 | `Modelfile` | Ollama import (int8, temperature 0, 16,384-token window, stop `<turn|>`) from `cache/import` |
 | `fix_kv_shared.py` | builds `cache/import` = `model/all_merged` (unchanged, linked) + the 54 tensors of the KV-shared layers 24-41 and `global_head_dim`, which Ollama requires but transformers 5.x does not save; the tensors are never used (zeros give identical output) |
 
-Runtime folders (not in git): `model/all_merged/` (the weights, from the private HF repo `oa-rlaif-e4b-all-merged`),
+Runtime folders (not in git): `model/all_merged/` (the weights, from the private HF repo `oa-rlaif-e4b-all-combined-model-safetensors`),
 `ollama-models/`, `ontologies/`, `output/`, `scores/`, `logs/`, `cache/`.
 
 The scripts find the OA-RLAIF repo as this folder's parent; a copy outside the repo uses `OA_RLAIF_DIR` (default

@@ -1,4 +1,4 @@
-"""Upload every output of the full evaluation to its own private dataset <you>/oa-rlaif-full-eval. Resumable.
+"""Upload every output of the full evaluation to its own private dataset <you>/oa-rlaif-full-eval-results. Resumable.
 
     python -m full_eval.push_results [--dry-run] [--episodes]
 
@@ -20,13 +20,13 @@ import sys
 
 from .schedule import root
 
-REPO = "oa-rlaif-full-eval"
+REPO = "oa-rlaif-full-eval-results"
 CARD = """---
 license: other
 license_name: mixed-private
 tags: [ontology-matching, oa-rlaif, full-alignment, oaei, private]
 ---
-# oa-rlaif-full-eval (private)
+# oa-rlaif-full-eval-results (private)
 
 Full-alignment evaluation of the OA-RLAIF models (base Gemma 4 E4B, SFT, OPSD, OPSD -> GRPO, All merged, and All
 merged + mini-SWE-agent), each with thinking off and on: every class of every dataset aligned, scored against the whole

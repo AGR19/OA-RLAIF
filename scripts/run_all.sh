@@ -18,11 +18,11 @@
 #   9 grpo        Stage 2 GRPO: DRAL-OA reward + local A4B judge (RLAIF), merged -> outputs/merged/grpo
 #  10 eval_grpo   GRPO model: held-out, zero-shot, ICD-11<->SNOMED, full Anatomy alignment (OAEI row), agent
 #  11 export      GGUF Q4_K_M + Ollama Modelfile (base + OPSD + GRPO in one file)
-#  12 push        private HF: oa-rlaif-e4b-gguf, oa-rlaif-e4b-sdft, oa-rlaif-e4b-grpo (the GGUF is safe from here)
+#  12 push        private HF: oa-rlaif-e4b-opsd-grpo-model-gguf, oa-rlaif-e4b-opsd-weights, oa-rlaif-e4b-grpo-weights (the GGUF is safe from here)
 #  13 sft         compulsory SFT comparison: same rows and steps as OPSD, merged -> outputs/merged/sft
 #  14 eval_sft    SFT model: held-out sets + agent episodes
 #  15 report      results tables: base / SFT / OPSD / GRPO, ICD-11<->SNOMED, agents, OAEI row
-#  16 results     private HF dataset oa-rlaif-results (tables, metrics, ICD-11<->SNOMED SSSOM, alignments)
+#  16 results     private HF dataset oa-rlaif-heldout-eval-results (tables, metrics, ICD-11<->SNOMED SSSOM, alignments)
 #
 # Resumable: finished steps are skipped on the next run (outputs/stages/<step>.done). After a failure the dashboard
 # shows the end of that step's log; fix the cause and run the same command again.
@@ -122,7 +122,7 @@ stage report     bash -c 'A=data/raw/anatomy-dataset-2; PYTHONPATH=src .venv/bin
 stage results    env PYTHONPATH=src .venv/bin/python -m oa_rlaif.data.hf_push --results
 
 echo
-echo "DONE on $WHERE. Your GGUF: https://huggingface.co/$NS/oa-rlaif-e4b-gguf (private)"
-echo "Also: $NS/oa-rlaif-e4b-sdft and $NS/oa-rlaif-e4b-grpo (LoRA adapters), dataset $NS/oa-rlaif-results."
-echo "Results table: outputs/eval/report.md (also in $NS/oa-rlaif-results)"; echo; cat outputs/eval/report.md
+echo "DONE on $WHERE. Your GGUF: https://huggingface.co/$NS/oa-rlaif-e4b-opsd-grpo-model-gguf (private)"
+echo "Also: $NS/oa-rlaif-e4b-opsd-weights and $NS/oa-rlaif-e4b-grpo-weights (LoRA adapters), dataset $NS/oa-rlaif-heldout-eval-results."
+echo "Results table: outputs/eval/report.md (also in $NS/oa-rlaif-heldout-eval-results)"; echo; cat outputs/eval/report.md
 echo "NOW $RELEASE"

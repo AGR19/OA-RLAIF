@@ -2,13 +2,14 @@
 
     python -m full_eval.pull_inputs
 
-  <you>/oa-rlaif-raw (dataset)          -> data/full_eval_inputs/  (raw ontology folders at its root, bio-ml/, profiles/)
-       not downloaded: Complex-OM except hydrography (5.9 GB, not evaluated), the SNOMED RF2 Full release (2.4 GB; the
-       Snapshot is used), ICD-10-CM
-  <you>/oa-rlaif-icd-triangulation      -> data/icd/triangulated.jsonl (the ICD-10-composed SNOMED -> ICD-11 links)
-  <you>/oa-rlaif-grpo (dataset)         -> data/eval/heldout_anatomy.jsonl     } only for the weight check of the
-  <you>/oa-rlaif-results                -> outputs/full_eval/earlier/<model>/ } rebuilt OPSD and GRPO merges (the
-                                           earlier run's replies); never scored or reported as an evaluation
+  <you>/oa-rlaif-raw-data (dataset)        -> data/full_eval_inputs/  (raw ontology folders at its root, bio-ml/,
+                                             profiles/); not downloaded: Complex-OM except hydrography (5.9 GB, not
+                                             evaluated), the SNOMED RF2 Full release (2.4 GB; the Snapshot is used),
+                                             ICD-10-CM
+  <you>/oa-rlaif-icd-bridge-data           -> data/icd/triangulated.jsonl (the ICD-10-composed SNOMED -> ICD-11 links)
+  <you>/oa-rlaif-grpo-data                 -> data/eval/heldout_anatomy.jsonl       } only for the weight check of
+  <you>/oa-rlaif-heldout-eval-results      -> outputs/full_eval/earlier/<model>/   } the re-merged OPSD and GRPO
+                                             models (the earlier run's replies); never scored or reported
 It also writes OA_RAW_DIR and OA_BIOML_DIR to .env and puts the IoTSec -> UCO pair and the profile texts where the
 code expects them.
 """
@@ -44,24 +45,24 @@ def main() -> int:
 
     ns = namespace()
     inputs = data_dir() / "full_eval_inputs"
-    print(f"[inputs] {ns}/oa-rlaif-raw -> {inputs}", flush=True)
-    snapshot_download(f"{ns}/oa-rlaif-raw", repo_type="dataset", local_dir=str(inputs), allow_patterns=RAW_PATTERNS,
+    print(f"[inputs] {ns}/oa-rlaif-raw-data -> {inputs}", flush=True)
+    snapshot_download(f"{ns}/oa-rlaif-raw-data", repo_type="dataset", local_dir=str(inputs), allow_patterns=RAW_PATTERNS,
                       max_workers=16)
     set_env({"OA_RAW_DIR": str(inputs.relative_to(ROOT)), "OA_BIOML_DIR": str((inputs / "bio-ml").relative_to(ROOT))})
     cyber = data_dir() / "external" / "cyber"
     if (inputs / "external" / "cyber").exists():
         shutil.copytree(inputs / "external" / "cyber", cyber, dirs_exist_ok=True)
     shutil.copy2(inputs / "ontology_profiles.json", data_dir() / "ontology_profiles.json")
-    print(f"[inputs] {ns}/oa-rlaif-grpo: eval/heldout_anatomy.jsonl (weight check only)", flush=True)
-    snapshot_download(f"{ns}/oa-rlaif-grpo", repo_type="dataset", local_dir=str(data_dir()),
+    print(f"[inputs] {ns}/oa-rlaif-grpo-data: eval/heldout_anatomy.jsonl (weight check only)", flush=True)
+    snapshot_download(f"{ns}/oa-rlaif-grpo-data", repo_type="dataset", local_dir=str(data_dir()),
                       allow_patterns=["eval/heldout_anatomy.jsonl"])
-    print(f"[inputs] {ns}/oa-rlaif-icd-triangulation: icd/triangulated.jsonl", flush=True)
-    snapshot_download(f"{ns}/oa-rlaif-icd-triangulation", repo_type="dataset", local_dir=str(data_dir()),
+    print(f"[inputs] {ns}/oa-rlaif-icd-bridge-data: icd/triangulated.jsonl", flush=True)
+    snapshot_download(f"{ns}/oa-rlaif-icd-bridge-data", repo_type="dataset", local_dir=str(data_dir()),
                       allow_patterns=["icd/triangulated.jsonl", "icd/triangulation_stats.json"])
     earlier = out_dir() / "full_eval" / "earlier"
     for tag in ("base", "sft", "sdft", "grpo"):
         try:
-            path = hf_hub_download(f"{ns}/oa-rlaif-results", f"{tag}/heldout_anatomy.predictions.jsonl",
+            path = hf_hub_download(f"{ns}/oa-rlaif-heldout-eval-results", f"{tag}/heldout_anatomy.predictions.jsonl",
                                    repo_type="dataset", local_dir=str(earlier))
             print(f"[inputs] earlier predictions: {Path(path).relative_to(earlier)}", flush=True)
         except Exception as error:  # noqa: BLE001 (the check is then reported as not done)

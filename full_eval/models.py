@@ -3,10 +3,10 @@
     python -m full_eval.models grpo sft all_merged sdft base      # in this order (the run's order)
 
   base        google/gemma-4-E4B-it
-  sdft        base + the OPSD LoRA adapter <you>/oa-rlaif-e4b-sdft, merged (the same merge as scripts/40_sdft.sh)
-  grpo        the OPSD model + the GRPO adapter <you>/oa-rlaif-e4b-grpo, merged (GRPO was trained on the merged OPSD model)
-  sft         <you>/oa-rlaif-e4b-sft-merged (pushed by scripts/push_sft.sh)
-  all_merged  <you>/oa-rlaif-e4b-all-merged (weights only; its eval/ and report/ folders are not downloaded)
+  sdft        base + the OPSD LoRA adapter <you>/oa-rlaif-e4b-opsd-weights, merged (the same merge as scripts/40_sdft.sh)
+  grpo        the OPSD model + the GRPO adapter <you>/oa-rlaif-e4b-grpo-weights, merged (GRPO was trained on the merged OPSD model)
+  sft         <you>/oa-rlaif-e4b-sft-model-safetensors (pushed by scripts/push_sft.sh)
+  all_merged  <you>/oa-rlaif-e4b-all-combined-model-safetensors (weights only; its eval/ and report/ folders are not downloaded)
 
 Merged models go to outputs/full_eval_models/<tag>/ with a READY file; a second call returns at once.
 The two rebuilt merges are checked against the earlier run's own predictions (full_eval.infer --verify).
@@ -24,10 +24,10 @@ BASE = "google/gemma-4-E4B-it"
 WEIGHTS = ["*.json", "*.safetensors", "*.jinja", "tokenizer*", "*.model"]
 SOURCES = {
     "base": ("hub", BASE, None),
-    "sdft": ("merge", "oa-rlaif-e4b-sdft", "base"),
-    "grpo": ("merge", "oa-rlaif-e4b-grpo", "sdft"),
-    "sft": ("hub", "oa-rlaif-e4b-sft-merged", None),
-    "all_merged": ("hub", "oa-rlaif-e4b-all-merged", None),
+    "sdft": ("merge", "oa-rlaif-e4b-opsd-weights", "base"),
+    "grpo": ("merge", "oa-rlaif-e4b-grpo-weights", "sdft"),
+    "sft": ("hub", "oa-rlaif-e4b-sft-model-safetensors", None),
+    "all_merged": ("hub", "oa-rlaif-e4b-all-combined-model-safetensors", None),
 }
 
 

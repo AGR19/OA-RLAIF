@@ -60,9 +60,9 @@ full_eval/vast_full_eval.sh
 ```
 
 It reads this instance's price, installs the Python environment and the agent's user sandbox (no Docker, no judge),
-asks once for your Hugging Face token, downloads the inputs from the private repo `<you>/oa-rlaif-raw` (pushed from the
+asks once for your Hugging Face token, downloads the inputs from the private repo `<you>/oa-rlaif-raw-data` (pushed from the
 Mac by `full_eval/push_inputs.py`), shows **the plan and what $100 buys**, asks once, and runs to the end. Then it
-uploads everything to the private dataset `<you>/oa-rlaif-full-eval`. **Destroy the instance afterwards.**
+uploads everything to the private dataset `<you>/oa-rlaif-full-eval-results`. **Destroy the instance afterwards.**
 `full_eval/vast_full_eval.sh --plan` only shows the plan. `FULL_EVAL_BUDGET_USD=150 full_eval/vast_full_eval.sh` raises
 the cap; `FULL_EVAL_THINKING=off` runs thinking off only; `FULL_EVAL_METHODS=grpo,all_merged-agent` narrows the
 methods. If anything stops it, run the same command again: finished work is kept.
@@ -126,7 +126,7 @@ category classifies the concept; not clinical equivalence).
   inside the thinking, no thinking text, cut at the token limit, thinking length, tokens, invalid replies, runtime).
 - Table 11 the complete SNOMED CT → ICD-11 map; Table 12 every unit (method × task): done, or why not, and the money.
 
-## Outputs (`outputs/full_eval/`, uploaded to `<you>/oa-rlaif-full-eval`)
+## Outputs (`outputs/full_eval/`, uploaded to `<you>/oa-rlaif-full-eval-results`)
 
 - `report.md` / `.tex` / `.json`, `figures/`.
 - `results/<method>/<task>/`: `scores.json` (OAEI scores, Top-k, behaviour); `decisions.tsv.gz` (every class:

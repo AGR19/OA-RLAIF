@@ -3,11 +3,11 @@
     python -m oa_rlaif.data.push_all_merged            # scripts/all_merged.sh --push calls this
     python -m oa_rlaif.data.push_all_merged --dry-run
 
-{ns}/oa-rlaif-e4b-all-merged   the merged weights (outputs/merged/all_merged; resumable upload), then one commit with
+{ns}/oa-rlaif-e4b-all-combined-model-safetensors   the merged weights (outputs/merged/all_merged; resumable upload), then one commit with
                                eval/ (held-out, closed-book, ICD), eval/agent/ (agent runs),
                                eval/full_align/ (whole-Anatomy alignment, OAEI form), report/ (its own comparison
                                tables: base, SFT, OPSD, GRPO and All merged) and the model card.
-This repo is the only place on the Hub with all-merged material: the results repo (oa-rlaif-results) and the main
+This repo is the only place on the Hub with all-merged material: the results repo (oa-rlaif-heldout-eval-results) and the main
 report never include it.
 Private (checked after creation); our own card. Not the released model: the GGUF stays base + OPSD + GRPO.
 """
@@ -18,20 +18,15 @@ import argparse
 import sys
 
 from ..paths import out_dir
-from .hf_push import BASE_MODEL, namespace
+from .hf_push import namespace
 from .push_sft import private_repo
 
-REPO = "oa-rlaif-e4b-all-merged"
-TEXT = ("Research variant of OA-RLAIF: `google/gemma-4-E4B-it` + Stage 1 OPSD + Stage 2 GRPO (DRAL-OA reward + A4B "
-        "judge, i.e. RLAIF) + the SFT comparison adapter. The GRPO model already holds base + OPSD + GRPO; the SFT LoRA "
-        "adapter, trained on the plain base, is added on top (its weight change is summed in, as in task arithmetic). "
-        "Not the released model (the GGUF is base + OPSD + GRPO). `eval/` holds the same evaluations as for GRPO.")
-
+REPO = "oa-rlaif-e4b-all-combined-model-safetensors"
 
 def card() -> str:
-    return (f"---\nlicense: other\nlicense_name: mixed-private\nbase_model: {BASE_MODEL}\nlibrary_name: transformers\n"
-            "tags: [ontology-matching, opsd, grpo, rlaif, sft, merge, oa-rlaif, research]\n---\n"
-            f"# {REPO} (private)\n\n{TEXT}\n\nPart of OA-RLAIF (github.com/AGR19/OA-RLAIF, private).\n")
+    from .hf_cards import card as hf_card
+
+    return hf_card(REPO)
 
 
 def eval_files(out):
