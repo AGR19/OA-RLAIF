@@ -207,3 +207,18 @@ def test_blank_labels_fall_back_to_the_iri_name():
     assert names(e)[0] == "BlockCipher" and label_texts(e) == ["BlockCipher"]
     e.labels.add(Label("block cipher", "en", "label"))
     assert names(e)[0] == "block cipher" and label_texts(e) == ["block cipher"]
+
+
+def test_biodiv2026_is_its_own_zero_shot_column_and_never_training_data():
+    """OAEI 2026 Biodiversity and Ecology: 9 pairs in the full evaluation only (not in families.discover, which the
+    training-data build reads), each source.xml -> target.xml, classes only, all zero-shot."""
+    from oa_rlaif.data.families import discover
+
+    specs = tasks.biodiv2026_specs()
+    if not specs:
+        pytest.skip("raw folder biodiv-2026/ not present")
+    assert len(specs) == 9 and all(s.source.name == "source.xml" and s.target.name == "target.xml" for s in specs)
+    assert not {s.pair_id for s in discover()} & {s.pair_id for s in specs}
+    task = next(t for t in tasks.tasks() if t.slug == "biodiv2026")
+    assert task.column == "Biodiv 2026" and task.classes_only
+    assert {s.pair_id for s in specs} <= tasks.zero_shot_pairs()

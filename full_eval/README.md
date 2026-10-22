@@ -15,15 +15,16 @@ each method, and every alignment is scored against the whole reference. There is
 | DH multilingual | iDAI → PACTOLS, by language | 10 | 18,093 | 56–68 | 98 |
 | Biodiv | ENVO → SWEET | 1 | 6,593 | 4,884 | 663 |
 | Biodiv (zero-shot) | FLOPO → PTO | 1 | 23,236 | 1,503 | 244 (230) |
+| Biodiv 2026 (zero-shot; OAEI 2026 track, raw folder `biodiv-2026/`, classes only) | ENVO → SWEET (2026), Fish → Zooplankton, Macroalgae → Macrozoobenthos, TAXREF-LD → NCBI Taxonomy (Animalia, Plantae, Fungi, Chromista, Protozoa, Bacteria) | 9 | 122,039 | 56–74,729 | 81,070 |
 | Cybersecurity (zero-shot) | IoTSec → UCO | 1 | 251 | 206 | 69 |
 | Zero-shot | hydrography Cree → SWO | 1 | 100 | 105 | 15 (+32 complex) |
 | ICD-10 → ICD-11 | every WHO ICD-10 code (11,243 categories, 1,058 modified categories, 274 blocks, 22 chapters) → ICD-11 Foundation entity | 1 | 12,597 | 71,175 | 16,555 (WHO tables) |
 | **SNOMED CT → ICD-11 (complete map)** | every active concept of Clinical finding, Situation and Event (the scope of the official SNOMED CT → ICD-10 map; `FULL_EVAL_SNOMED_SCOPE=all` for every concept) → ICD-11 Foundation entity | 1 | 141,182 | 71,175 | none (231,690 composed silver links) |
-| **Total** | | 1,153 | 1,316,692 | | |
+| **Total** | | 1,162 | 1,438,731 | | |
 
 Entities = declared classes and properties, without vocabulary, placeholder and deprecated entities. Reference links in
 parentheses: the links whose two entities are in the two ontologies (the Top-k evaluation uses these; the OAEI scores
-use all). 12 methods × 1,316,692 decisions ≈ 15.8 million decisions for the complete evaluation.
+use all). 12 methods × 1,438,731 decisions ≈ 17.3 million decisions for the complete evaluation.
 
 ## Directions (checked 2026-10-22)
 
@@ -38,6 +39,7 @@ check over every pair (`orient` in `oa_rlaif.ontology.alignment_io`) found:
 | MultiFarm | o1 in l1 → o2 in l2 (`cmt-confOf-fr-ar`: cmt in French → confOf in Arabic), 1,125 pairs | 35,127 (+87 flipped, +182 unknown) | `cmt-cmt-fr-ar.rdf` is written Arabic → French (flipped when read); 16 Arabic–French files name 182 entities that are in no ontology file (a defect of the 2015 test set) |
 | DH, DH-ML | `source.rdf` → `target.rdf` (8 + 10 pairs) | all | |
 | Biodiv | ENVO → SWEET, FLOPO → PTO | 666; 231 (+14 unknown) | 5 ENVO sources are obsolete classes (not aligned, so they count as misses); FLOPO → PTO cites 14 PATO and PO classes |
+| Biodiv 2026 | `source.xml` → `target.xml` of each OAEI 2026 test case (ENVO → SWEET, Fish → Zooplankton, Macroalgae → Macrozoobenthos, TAXREF-LD → NCBI ×6) | all 81,071 | classes only (`parameters.xml`); 6 ENVO 2026 sources are obsolete classes; never trained on (zero-shot) |
 | Cybersecurity | IoTSec → UCO | 69 of 69 | all links 'related'; IoTSec writes empty labels, so names come from the IRIs |
 | Zero-shot | hydrography cree → SWO | 15 simple (+32 complex) | Cree names share no letters with SWO's English names: retrieval finds no partner (ceiling 0) |
 | ICD-10 → ICD-11 | every WHO ICD-10 code → ICD-11 category | WHO `10To11` tables | |

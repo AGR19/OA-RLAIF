@@ -117,6 +117,15 @@ def semantic_candidates(source, target, iris: list[str], targets: set[str], mode
     return out
 
 
+def file_profiles(spec) -> tuple[str, str]:
+    """Modelling-profile texts for a pair that data/ontology_profiles.json does not list (the biodiv-2026 test cases,
+    added after training): built from the files, as the om_agent console does. Every prompt carries both profiles."""
+    from oa_rlaif.data.ontology_profiles import summary_text
+    from oa_rlaif.eval.align import build_profile_from
+
+    return summary_text(build_profile_from(spec.source)), summary_text(build_profile_from(spec.target))
+
+
 def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> dict:
     from oa_rlaif.data.cards import children_index
     from oa_rlaif.retrieval.candidates import CandidateGenerator
@@ -129,12 +138,17 @@ def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> di
         dep_s, dep_t = deprecated_iris(spec.source), deprecated_iris(spec.target)
         iris = scope(source, dep_s)
         targets = set(scope(target, dep_t))
+        if task.classes_only:  # OAEI parameters.xml: classes are matched, properties are not
+            from oa_rlaif.data.cards import kind_of
+
+            iris = [i for i in iris if kind_of(source, i) == "class"]
+            targets = {t for t in targets if kind_of(target, t) == "class"}
         declared = sum(1 for e in source.entities.values() if e.declared)
         manifest["pairs"][spec.pair_id] = {
             "source": spec.source.name, "target": spec.target.name, "sources": len(iris),
             "declared": declared, "left_out_deprecated": sum(1 for i in dep_s if i in source.entities),
             "left_out_vocabulary": sum(1 for i, e in source.entities.items() if e.declared and is_meta(i)),
-            "target_entities": len(targets)}
+            "target_entities": len(targets), "classes_only": task.classes_only}
         if limit:
             iris = iris[:limit]
         k = cfg.get("k_by_family", {}).get(spec.family, cfg.get("k", 20))
@@ -142,7 +156,7 @@ def build_pairs(task: Task, limit: int, workers: int, pair_profiles: dict) -> di
         _W.clear()
         _W.update(spec=spec, source=source, target=target, targets=targets, k=k,
                   kids_s=children_index(source), kids_t=children_index(target),
-                  profiles=pair_profiles.get(spec.pair_id, ("", "")), semantic=None, generator=None)
+                  profiles=pair_profiles.get(spec.pair_id) or file_profiles(spec), semantic=None, generator=None)
         if mode == "semantic":
             _W["semantic"] = semantic_candidates(source, target, iris, targets, cfg.get("semantic_model"), k)
         else:

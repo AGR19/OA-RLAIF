@@ -28,6 +28,7 @@ from .schedule import AGENT, REPORT_ORDER, label, method, root
 from .tasks import COLUMNS, tasks, zero_shot_pairs
 
 THINKING = (False, True)
+OWN_COLUMN = {"cyber", "biodiv2026"}  # zero-shot families with a column of their own (not in the Zero-shot column)
 PUBLISHED_ANATOMY = [  # whole alignments of systems not trained on the reference
     # OAEI 2026 Anatomy track, preliminary results (oaei.ontologymatching.org/2026/results/anatomy)
     ("DRAMA (OAEI 2026)", 0.945, 0.951, 0.957, 0.902), ("Matcha (OAEI 2026)", 0.951, 0.941, 0.931, 0.820),
@@ -60,11 +61,12 @@ def mean(values: list) -> float | None:
 # ---- one cell per (method, dataset column) ------------------------------------------------------------------------------
 def column_tasks(column: str) -> list[str]:
     """The tasks a column needs. Zero-shot: the never-trained pairs inside the family tasks and the zero-shot task
-    (Hydrography cree -> SWO); IoTSec -> UCO, also never trained on, has its own Cybersecurity column."""
+    (Hydrography cree -> SWO); IoTSec -> UCO and the OAEI 2026 Biodiversity and Ecology test cases, also never trained
+    on, have their own columns (Cybersecurity, Biodiv 2026)."""
     if column == "Zero-shot":
         zero = zero_shot_pairs()
-        return [t.slug for t in tasks() if t.family != "cyber" and (t.column == "Zero-shot"
-                                                                     or any(s.pair_id in zero for s in t.specs))]
+        return [t.slug for t in tasks() if t.family not in OWN_COLUMN and (t.column == "Zero-shot"
+                                                                            or any(s.pair_id in zero for s in t.specs))]
     return [t.slug for t in tasks() if t.column == column]
 
 
@@ -75,7 +77,7 @@ def column_pairs(per: dict, column: str) -> list[dict] | None:
         return None
     if column == "Zero-shot":
         return [p for s in slugs for p in per[s]["pairs"].values() if p.get("zero_shot")]
-    if column == "Cybersecurity":
+    if column in ("Cybersecurity", "Biodiv 2026"):  # every pair is zero-shot; the column is its own
         return [p for s in slugs for p in per[s]["pairs"].values()]
     return [p for s in slugs for p in per[s]["pairs"].values() if not p.get("zero_shot")]
 

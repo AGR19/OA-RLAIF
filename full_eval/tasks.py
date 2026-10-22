@@ -19,7 +19,7 @@ from pathlib import Path
 
 from oa_rlaif.data.families import PairSpec, discover
 from oa_rlaif.io import read_yaml
-from oa_rlaif.paths import config_dir, data_dir, out_dir, relative_to_raw
+from oa_rlaif.paths import config_dir, data_dir, out_dir, raw_dir, relative_to_raw
 
 META_PREFIXES = (
     "http://www.w3.org/2002/07/owl#", "http://www.geneontology.org/formats/oboInOwl#",
@@ -32,8 +32,10 @@ IGNORED_RELATIONS = {"?", "%"}  # unknown / incompatible reference cells are not
 EQUIVALENCE = {"=", "<=", ">=", ""}  # OAEI scoring; Bio-ML's <= / >= are equivalences on the repaired basis
 
 # Report columns, in the order of the earlier Table 1.
-COLUMNS = ["Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "Cybersecurity", "ICD-10→11", "SNOMED→ICD-11",
-           "Zero-shot"]
+COLUMNS = ["Anatomy", "Bio-ML", "MultiFarm", "DH", "DH-ML", "Biodiv", "Biodiv 2026", "Cybersecurity", "ICD-10→11",
+           "SNOMED→ICD-11", "Zero-shot"]
+# OAEI 2026 Biodiversity and Ecology test cases (raw folder biodiv-2026/, SEALS layout); evaluation only
+BIODIV_2026 = "biodiv-2026"
 # The two very large tasks (whole-ontology pairs); everything else is "small" (minutes per model).
 GIANT = {"bioml__NCIT-DOID", "bioml__SNOMED-FMA", "bioml__SNOMED-NCIT", "icd__snomed-to-icd11"}
 # ICD's own scope for SNOMED CT: the SNOMED CT -> ICD-10 map covers these three hierarchies (clinical finding, event,
@@ -48,14 +50,27 @@ class Task:
     column: str
     specs: list               # PairSpec list (empty for the two ICD tasks)
     giant: bool = False
+    classes_only: bool = False  # the track matches classes only (OAEI parameters.xml: matchingClasses)
 
     @property
     def pair_ids(self) -> list[str]:
         return [s.pair_id for s in self.specs] or [f"icd/{self.slug.split('__', 1)[1]}"]
 
 
+def biodiv2026_specs() -> list[PairSpec]:
+    """The 9 test cases of the OAEI 2026 Biodiversity and Ecology track (raw folder biodiv-2026/<case>/component/:
+    source.xml -> target.xml, reference.xml). Kept out of oa_rlaif.data.families.discover(), so a training-data build
+    never reads them: they were added after training and are zero-shot pairs."""
+    root = raw_dir() / BIODIV_2026
+    return [PairSpec(pair_id=f"biodiv2026/{case.parent.name}", family="biodiv2026", source=case / "source.xml",
+                     target=case / "target.xml", references=[case / "reference.xml"],
+                     note="OAEI 2026 Biodiversity and Ecology; classes only")
+            for case in sorted(root.glob("*/component")) if (case / "reference.xml").exists()]
+
+
 def zero_shot_pairs() -> set[str]:
-    return set(read_yaml(config_dir() / "data.yaml").get("zero_shot_pairs", []))
+    """Whole pairs never trained on: data.yaml's list and the OAEI 2026 Biodiversity and Ecology test cases."""
+    return set(read_yaml(config_dir() / "data.yaml").get("zero_shot_pairs", [])) | {s.pair_id for s in biodiv2026_specs()}
 
 
 def tasks(families: set[str] | None = None) -> list[Task]:
@@ -81,6 +96,8 @@ def tasks(families: set[str] | None = None) -> list[Task]:
     for family, column in (("multifarm", "MultiFarm"), ("dh", "DH"), ("dh_multiling", "DH-ML"), ("biodiv", "Biodiv")):
         if by_family.get(family):
             out.append(Task(family, family, column, by_family[family]))
+    if biodiv2026_specs():  # zero-shot: ENVO -> SWEET (2026), Fish -> Zooplankton, Macroalgae -> Macrozoobenthos, TAXREF-LD -> NCBI
+        out.append(Task("biodiv2026", "biodiv2026", "Biodiv 2026", biodiv2026_specs(), classes_only=True))
     for s in by_family.get("cyber", []):  # IoTSec -> UCO (raw folder cybersecurity/); never trained on
         out.append(Task("cyber__" + s.pair_id.split("/")[-1], "cyber", "Cybersecurity", [s]))
     for s in by_family.get("complex_om", []):

@@ -41,7 +41,7 @@ REPORT_ORDER = ["base", "sft", "sdft", "grpo", "all_merged", AGENT]  # row order
 LABELS = {"base": "Gemma 4 E4B (base)", "sft": "+ SFT", "sdft": "+ OPSD", "grpo": "+ OPSD → GRPO (RLAIF)",
           "all_merged": "All merged (OPSD → GRPO + SFT)", AGENT: "All merged + mini-SWE-agent"}
 SMALL_ORDER = ["anatomy__mouse-human", "dh", "dh_multiling", "biodiv", "complex_om__cree-swo", "cyber__iotsec-uco",
-               "icd__who-icd10-to-icd11", "multifarm"]
+               "icd__who-icd10-to-icd11", "multifarm", "biodiv2026"]
 GIANT_ORDER = ["icd__snomed-to-icd11", "bioml__NCIT-DOID", "bioml__SNOMED-FMA", "bioml__SNOMED-NCIT"]
 # decisions/s on all GPUs until measured, per kind of method (FULL_EVAL_RATE_<KIND>, e.g. FULL_EVAL_RATE_AGENT_THINK)
 DEFAULT_RATES = {"decide": 120.0, "decide-think": 20.0, "agent": 25.0, "agent-think": 8.0}
@@ -126,7 +126,7 @@ def decisions(slug: str) -> tuple[int, bool]:
     manifest = root() / "episodes" / slug / "manifest.json"
     if (manifest.parent / "READY").exists():
         return json.loads(manifest.read_text())["episodes"], True
-    estimate = {"icd__snomed-to-icd11": 130_000, "icd__who-icd10-to-icd11": 12_000}.get(slug)
+    estimate = {"icd__snomed-to-icd11": 141_182, "icd__who-icd10-to-icd11": 12_597, "biodiv2026": 124_563}.get(slug)
     if estimate is None:
         profiles = json.loads((data_dir() / "ontology_profiles.json").read_text())
         task = next(t for t in tasks() if t.slug == slug)

@@ -27,7 +27,7 @@ RAW_PATTERNS = [
     "biodiv/*", "complex-OM-benchmark-main/hydrography/**", "ICD-10 to SNOWMEDCT/icd11.owl",
     "ICD-10 to SNOWMEDCT/snomed-ct-us-*.owl", "ICD-10 to SNOWMEDCT/ICD 10 to 11 Mapings/**",
     "ICD-10 to SNOWMEDCT/SnomedCT_*/Snapshot/**", "ICD-10 to SNOWMEDCT/SnomedCT_*/*.json",
-    "cybersecurity/**", "bio-ml/**", "external/cyber/**", "profiles/**", "ontology_profiles.json",
+    "cybersecurity/**", "biodiv-2026/**", "bio-ml/**", "external/cyber/**", "profiles/**", "ontology_profiles.json",
 ]
 
 
