@@ -113,6 +113,8 @@ def semantic_candidates(source, target, iris: list[str], targets: set[str], mode
 
     from oa_rlaif.retrieval.semantic import SemanticIndex, encoder, entity_text
 
+    if not iris:  # a pair with no source to align (e.g. a MultiFarm reference none of whose cells resolves)
+        return {}
     index = SemanticIndex(target, model, cache_key=None)
     queries = encoder(model).encode([entity_text(source.entities[i]) for i in iris], batch_size=256,
                                     normalize_embeddings=True, show_progress_bar=False).astype("float32")
