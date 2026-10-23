@@ -98,9 +98,10 @@ def decide(episode: dict, row: dict) -> dict:
         targets = [c for c in (d.choices or ()) if c != "NONE"] if d.valid else []
         relation, confidence = (d.relation if d.valid else ""), d.confidence
         thought, error = row["reply"].split("\n", 1)[0][:300], d.error
+        if "finish_reason" in row:  # recorded for every reply since 2026-10-22 (thinking on: before that too)
+            stats["truncated"] = row["finish_reason"] == "length"
         if "thinking" in row:
-            stats.update(thinking_chars=len(row["thinking"]), answer_in_thinking=bool(row.get("answer_in_thinking")),
-                         truncated=row.get("finish_reason") == "length")
+            stats.update(thinking_chars=len(row["thinking"]), answer_in_thinking=bool(row.get("answer_in_thinking")))
     return {"pair_id": episode["pair_id"], "source_iri": episode["source_iri"],
             "source_label": card_field(episode["source_card"], "name"), "decision": decision, "targets": targets,
             "target_labels": [card_field(cards.get(t, ""), "name") for t in targets],
@@ -195,11 +196,12 @@ def behaviour(records: list[dict], tag: str) -> dict:
            "none": sum(r["decision"] == "NONE" for r in records) / n,
            "invalid": sum(r["decision"] == "invalid" for r in records) / n,
            "prompt_tokens_per_class": mean("prompt_tokens"), "completion_tokens_per_class": mean("completion_tokens")}
+    if any("truncated" in s for s in stats):  # replies cut at the token limit (counted as invalid when unparsable)
+        out["truncated"] = sum(bool(s.get("truncated")) for s in stats) / n
     if m.think:
         out.update(thinking_chars_per_class=mean("thinking_chars"),
                    answer_in_thinking=sum(bool(s.get("answer_in_thinking")) for s in stats) / n,
-                   no_thinking=sum(not s.get("thinking_chars") for s in stats) / n,
-                   truncated=sum(bool(s.get("truncated")) for s in stats) / n)
+                   no_thinking=sum(not s.get("thinking_chars") for s in stats) / n)
     if m.agent:
         out.update(model_calls_per_class=mean("model_calls"), extra_commands_per_class=mean("extra_commands"),
                    classes_with_extra_commands=sum((s.get("extra_commands") or 0) > 0 for s in stats) / n,

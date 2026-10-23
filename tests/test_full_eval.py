@@ -332,3 +332,34 @@ def test_progress_line_has_a_bar_counts_speed_and_time_left():
     line = schedule.progress_text("icd/who-icd10-to-icd11", 5_300, 12_597, 12.4, "episodes")
     assert line.startswith("icd/who-icd10-to-icd11 [") and " 42.1% 5,300/12,597 episodes · 12.4/s · ETA 0:09:48" in line
     assert schedule.bar(0, 0) == "[" + "-" * 24 + "]   0.0%" and schedule.clock(None) == "?"
+
+
+def test_replies_are_not_cut_at_256_tokens_and_cut_replies_are_counted(monkeypatch):
+    """The 2026-10-22 run cut base, OPSD and GRPO replies at 256 new tokens before their `om submit`; the limit is now
+    1,024 (FULL_EVAL_MAX_TOKENS) and every reply records its finish reason."""
+    from full_eval import infer
+
+    monkeypatch.delenv("FULL_EVAL_MAX_TOKENS", raising=False)
+    import importlib
+
+    assert importlib.reload(infer).MAX_NEW_TOKENS == 1024
+    ep = episode("Liver", "Heart")
+    cut = reply_row(ep, "THOUGHT: the source is a heart, and C2 ...", 900, 1024, "length", think=False)
+    assert cut["finish_reason"] == "length" and "thinking" not in cut
+    r = score.decide(ep, cut)
+    assert r["decision"] == "invalid" and r["stats"]["truncated"]
+    done = score.decide(ep, reply_row(ep, "THOUGHT: x\n```mswea_bash_command\necho COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+                                          " && om submit C2 --relation = --confidence 0.9\n```", 900, 60, "stop", think=False))
+    assert score.behaviour([r, done], "grpo")["truncated"] == 0.5
+
+
+def test_rerun_keeps_the_finished_results_of_the_other_methods(monkeypatch):
+    from full_eval.pull_inputs import reuse_patterns
+
+    for name in ("FULL_EVAL_METHODS", "FULL_EVAL_MODELS", "FULL_EVAL_THINKING"):
+        monkeypatch.delenv(name, raising=False)
+    assert reuse_patterns(["base", "sdft", "grpo"]) == [
+        "results/*/2-sft/scores.json", "results/*/5-all-merged/scores.json",
+        "results/*/6-all-merged-agent-thinking/scores.json"]
+    with pytest.raises(SystemExit):
+        reuse_patterns(["opsd"])  # the tag is sdft

@@ -28,7 +28,9 @@ from pathlib import Path
 from .build_episodes import read_shard
 from .schedule import method, root
 
-MAX_NEW_TOKENS = 256
+# Thinking off: new tokens per reply. 256 (the earlier evaluation's limit) cut the longer replies of base, OPSD and
+# OPSD -> GRPO before their `om submit` (the 2026-10-22 run: 63%, 27% and 10% invalid, every one at exactly 256).
+MAX_NEW_TOKENS = int(os.environ.get("FULL_EVAL_MAX_TOKENS", "1024"))
 THINK_TOKENS = int(os.environ.get("FULL_EVAL_THINK_TOKENS", "4096"))
 
 
@@ -93,7 +95,7 @@ class Engine:
         started = time.time()
         quant = os.environ.get("FULL_EVAL_QUANT") or None  # e.g. fp8: faster, but not the evaluated bf16 weights
         self.think, self.settings = think, settings(think)
-        self.llm = LLM(model=model, tensor_parallel_size=1, max_model_len=16384 if think else 8192, quantization=quant,
+        self.llm = LLM(model=model, tensor_parallel_size=1, max_model_len=16384, quantization=quant,
                        limit_mm_per_prompt={"image": 0, "audio": 0},
                        gpu_memory_utilization=float(os.environ.get("FULL_EVAL_GPU_UTIL", "0.88")))
         self.params = SamplingParams(temperature=0.0, max_tokens=THINK_TOKENS if think else MAX_NEW_TOKENS,
@@ -110,13 +112,13 @@ class Engine:
 
 
 def reply_row(episode: dict, raw: str, prompt: int, completion: int, finish: str, think: bool) -> dict:
-    row = {"id": episode["id"], "reply": raw, "prompt_tokens": prompt, "completion_tokens": completion}
+    row = {"id": episode["id"], "reply": raw, "prompt_tokens": prompt, "completion_tokens": completion,
+           "finish_reason": finish}  # "length" = cut at the token limit
     if think:
         from oa_rlaif.eval.thinking import split
 
         parts = split(raw)
-        row.update(reply=parts["answer"], thinking=parts["thinking"], answer_in_thinking=parts["answer_in_thinking"],
-                   finish_reason=finish)
+        row.update(reply=parts["answer"], thinking=parts["thinking"], answer_in_thinking=parts["answer_in_thinking"])
     return row
 
 

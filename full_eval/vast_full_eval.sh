@@ -7,6 +7,8 @@
 #
 #   full_eval/vast_full_eval.sh            setup, inputs, plan (asks once), run, report, upload; resumable
 #   full_eval/vast_full_eval.sh --plan     only show the plan and what the money buys
+#   FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh   run only these methods again; the others keep
+#                                          their finished results from the HF results repo
 #
 # Steps: 1 setup (price, packages, Python env, agent sandbox)  2 Hugging Face login  3 inputs from the private repos
 #        4 the run (models rebuilt, episodes built, GPUs, scoring, report)  5 upload of every output to the

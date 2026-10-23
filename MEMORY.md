@@ -446,3 +446,27 @@ Entries are dated and newest last. Each one records what was decided, why, and t
 - **Results:** `results/<task>/<method folder>/` (`1-base`, `2-sft`, `3-opsd`, `4-opsd-grpo`, `5-all-merged`, `6-all-merged-agent`, with `-thinking` when thinking is on), with one `alignment.rdf` and SSSOM file per method and pair. The user asked for the results sorted by dataset.
 - **The full run is kept:** `FULL_EVAL_SCOPE=all` gives every class plus the OAEI scores and the 12 old tables.
 - The run refuses to mix episodes built with another scope.
+
+## 2026-10-22 — first Vast full evaluation done; reply limit raised to 1,024 tokens
+- **The run:** all 78 units, $188.70 at $41.33/h on 4 × B300, about 4.6 h. Results and the report are in `gonibeed/oa-rlaif-full-eval-results`.
+- **Top-1 F averages:**
+
+  | Method | Top-1 F |
+  |---|---:|
+  | SFT | 71.8 |
+  | agent, thinking on | 71.1 |
+  | All merged | 70.5 |
+  | GRPO | 68.3 |
+  | OPSD | 66.6 |
+  | base | 44.2 |
+
+- **Finding:** the one-call limit of 256 new tokens (`MAX_NEW_TOKENS`, kept from the earlier evaluation) cut replies before `om submit`.
+  - Cut replies: base 63%, OPSD 27%, GRPO 10%; every invalid reply sampled was at exactly 256 tokens.
+  - SFT and All merged were never cut.
+  - So the base, OPSD and GRPO numbers are lower bounds.
+- **Fix:**
+  - `FULL_EVAL_MAX_TOKENS` defaults to 1,024; the thinking-off context is now 16,384.
+  - Every reply records its finish reason, and Table 4 shows "Cut at token limit" for every method.
+  - `FULL_EVAL_RERUN=base,sdft,grpo` runs those methods again and reuses the other methods' finished `scores.json` from HF.
+- **Estimate before the rerun** (average over 10 datasets): GRPO 69.0 → at most about 70.7, OPSD 67.1 → at most about 74.0, base 44.3 → at most about 78.3. The cut-off classes are probably the harder ones, so the true values are likely lower.
+- **Correction told to the user:** with min(k, |R_c|), Precision@k can fall as k grows when a class has several partners (IoTSec). Recall cannot fall.

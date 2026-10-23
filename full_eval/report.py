@@ -266,7 +266,7 @@ def table_behaviour(results: dict, price: float | None) -> list:
                                   pooled(results, tag, "completion_tokens_per_class"), agent("model_calls_per_class"),
                                   agent("extra_commands_per_class"), agent("format_errors_per_class"),
                                   agent("seconds_per_class"), think("thinking_chars_per_class"),
-                                  think("answer_in_thinking", 100), think("truncated", 100), hours or None,
+                                  think("answer_in_thinking", 100), pooled(results, tag, "truncated", 100), hours or None,
                                   hours * price if hours and price else None]))
     return rows
 
@@ -400,7 +400,8 @@ def tables_reference(results: dict, price: float | None, plan: dict) -> tuple[di
                      higher=[None, None, True, True, True, True, True]),
         "t4": render("Table 4. What the methods did (every task the method ran, weighted by classes). Model calls, "
                      "extra commands (beyond the scripted om profile / om show / om candidates and the submit), format "
-                     "errors and seconds: the agent only; thinking: the thinking-on methods only.",
+                     "errors and seconds: the agent only; thinking: the thinking-on methods only. Cut at token limit = "
+                     "replies that reached the limit (1,024 new tokens thinking off, 4,096 thinking on).",
                      ["Classes", "Match %", "NONE %", "Invalid %", "Prompt tokens/class", "Completion tokens/class",
                       "Model calls/class", "Extra commands/class", "Format errors/class", "Seconds/class",
                       "Thinking characters/class", "Answer inside thinking %", "Cut at token limit %", "Runtime h",

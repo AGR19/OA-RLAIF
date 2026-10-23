@@ -92,6 +92,12 @@ Six methods exist. Each one can run with thinking off or on (the models were tra
 | All merged (OPSD → GRPO + SFT) | `all_merged` | the same |
 | All merged + mini-SWE-agent | `all_merged-agent` | the agent of the local console (`om_agent/`), one episode per class: scripted `om profile`, `om show <class>`, `om candidates <class> --k N`, then the model with the trained agent prompt until `om submit` (step limit 6) |
 
+**Reply length.** One-call methods with thinking off may write up to **1,024** new tokens per reply
+(`FULL_EVAL_MAX_TOKENS`). The first run (2026-10-22) used the earlier evaluation's 256. That limit cut base, OPSD and
+OPSD → GRPO replies before their `om submit`: 63%, 27% and 10% of their answers became invalid, every one at exactly
+256 tokens. SFT and All merged write short replies and were never cut. Every reply now records its finish reason, and
+Table 4 shows the share cut at the limit.
+
 Thinking on = the tag + `-think` (e.g. `grpo-think`, `all_merged-agent-think`): the chat template's
 `enable_thinking`, up to 4,096 new tokens. The thinking text is split off from the answer
 (`oa_rlaif.eval.thinking.split`, the same function as in the console); when the model writes its answer inside the
@@ -140,6 +146,8 @@ afterwards.**
 Options:
 - `full_eval/vast_full_eval.sh --plan` only shows the plan.
 - `FULL_EVAL_BUDGET_USD=500 full_eval/vast_full_eval.sh` changes the cap.
+- `FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh` runs only those methods again. The other methods
+  keep their finished results, downloaded from the results repo, and the new report has every row.
 - `FULL_EVAL_SCOPE=all FULL_EVAL_METHODS=all FULL_EVAL_BUDGET_USD=4500 full_eval/vast_full_eval.sh` runs the complete
   evaluation (every class, 12 methods, OAEI scores too).
 
