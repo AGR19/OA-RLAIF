@@ -18,6 +18,9 @@ arm; FULL_EVAL_TASKS narrows it), the same episodes as the full evaluation (full
 background while the GPUs work). A unit (arm, task) runs only if its projected cost fits the money left (DM_BUDGET_USD,
 default $450, setup included); outputs/full_eval/STOP stops the workers between shards when the spend reaches the
 cap. Each finished unit is scored at once (full_eval.score), then dm_harness.report writes the tables.
+While a worker runs, one live line shows its unit (bar, speed, time left) and the whole run (bar, time left, money
+spent, and the money expected at the end at the measured speed and this machine's price); the worker's own output goes
+to outputs/full_eval/logs/<arm>.log.
 """
 
 from __future__ import annotations
@@ -30,7 +33,10 @@ import sys
 import threading
 import time
 
-from full_eval.schedule import Budget, decisions, results_dir, root, selected_tasks, task_order
+from full_eval.run import replied
+from full_eval.run import show as show_line
+from full_eval.schedule import (Budget, bar, clock, decisions, progress_text, results_dir, root, selected_tasks,
+                                task_order)
 
 from . import stack
 from .jah_config import write as write_jah_config
@@ -118,6 +124,59 @@ def show(rows: list[dict], budget: Budget) -> None:
     print(f"total projected: ${total:.2f} + spent ${budget.spent():.2f} of ${budget.cap:.0f}")
 
 
+def cal_counts() -> tuple[int, int]:
+    """(sample classes with shadow runs, sample classes) of arm C's calibration."""
+    cal = root() / "calibration"
+    n_done = len((cal / "shadow.jsonl").read_text().splitlines()) if (cal / "shadow.jsonl").exists() else 0
+    if (cal / "sample_ids.json").exists():
+        return (len(json.loads((cal / "sample_ids.json").read_text())),) * 2
+    return n_done, max(n_done, int(os.environ.get("DM_CAL_N", "3000")))
+
+
+def unit_counts(arm: str, slug: str) -> tuple[int, int]:
+    return (decisions(slug)[0],) * 2 if done(arm, slug) else replied(arm, slug)
+
+
+def run_left(current: str, live: float) -> tuple[int, int, float]:
+    """The whole run: (classes done, classes, seconds left). Each arm's classes still to do at its speed (the running
+    arm at its live speed once it has one), and the calibration's shadow runs."""
+    run_done = run_total = 0
+    seconds = 0.0
+    for arm in selected_arms():
+        todo = 0
+        for t in task_order(selected_tasks()):
+            d, n = unit_counts(arm, t.slug)
+            run_done, run_total, todo = run_done + d, run_total + n, todo + n - d
+        seconds += todo / (live if arm == current and live > 0 else rate(arm)[0])
+    if "jah-fit-agent" in selected_arms():
+        d, n = cal_counts()
+        run_done, run_total = run_done + d, run_total + n
+        seconds += (n - d) / live if current == "calibrate" and live > 0 else \
+            (n - d) * CAL_EPISODES_PER_CLASS / rate("jah-agent")[0]
+    return run_done, run_total, seconds
+
+
+def progress_line(arm: str, name: str, d: int, n: int, live: float, budget: Budget) -> str:
+    """The running unit (bar, speed, time left) and the whole run (bar, time left, money spent, and the money at the
+    end at this speed and price)."""
+    run_done, run_total, left = run_left(arm, live)
+    spent = budget.spent()
+    return (f"[{time.strftime('%H:%M:%S')}] {progress_text(name, d, n, live, 'classes')} | run "
+            f"{bar(run_done, run_total, 12)} · left ~{clock(left)} · ${spent:.2f} spent of ${budget.cap:.0f} · "
+            f"~${spent + budget.dollars(left):.0f} at the end")
+
+
+def watch(proc: subprocess.Popen, arm: str, name: str, counts, budget: Budget) -> int:
+    """Waits for a worker with one live progress line (on a terminal; a new line every 20 s in a log)."""
+    started, before = time.time(), counts()[0]
+    while proc.poll() is None:
+        time.sleep(10 if sys.stdout.isatty() else 20)
+        d, n = counts()
+        show_line(progress_line(arm, name, d, n, (d - before) / max(1.0, time.time() - started), budget))
+    print(flush=True)
+    return proc.returncode
+
+
 def watchdog(budget: Budget, stop: threading.Event) -> None:
     """Writes outputs/full_eval/STOP when the spend reaches the cap; the workers stop between shards."""
     while not stop.wait(20):
@@ -138,13 +197,16 @@ def run_units(arm: str, budget: Budget, statuses: dict, scorers: list) -> bool:
         print(f"\n[run] {arm} · {p['task']}: {p['classes']:,} classes", flush=True)
         started = time.time()
         extra = ["--tag", arm] if arm in STACK else []
-        code = subprocess.run([PY, "-m", ARMS[arm], "--tasks", p["task"], *extra]).returncode
+        log = open(root() / "logs" / f"{arm}.log", "a")
+        worker = subprocess.Popen([PY, "-m", ARMS[arm], "--tasks", p["task"], *extra], stdout=log,
+                                  stderr=subprocess.STDOUT)
+        code = watch(worker, arm, f"{arm} · {p['task']}", lambda: unit_counts(arm, p["task"]), budget)
         seconds = time.time() - started
         if code == 3:
             statuses[(arm, p["task"])] = {"status": "stopped (money); continues on the next run"}
             return False
         if code != 0:
-            statuses[(arm, p["task"])] = {"status": f"worker failed (exit {code})"}
+            statuses[(arm, p["task"])] = {"status": f"worker failed (exit {code}; see logs/{arm}.log)"}
             continue
         n, _ = decisions(p["task"])
         record(arm, n, seconds)
@@ -193,7 +255,9 @@ def run_stack(budget: Budget, statuses: dict, scorers: list) -> bool:
                 statuses[("calibrate", "sample")] = {"status": "not run (money)"}
                 return False
             print("\n[run] calibration: shadow runs on the sample, then the fit", flush=True)
-            if subprocess.run([PY, "-m", "dm_harness.calibrate"]).returncode != 0 or not thresholds.exists():
+            log = open(root() / "logs" / "calibrate.log", "a")
+            worker = subprocess.Popen([PY, "-m", "dm_harness.calibrate"], stdout=log, stderr=subprocess.STDOUT)
+            if watch(worker, "calibrate", "calibrate · sample", cal_counts, budget) != 0 or not thresholds.exists():
                 statuses[("calibrate", "sample")] = {"status": "calibration failed (see logs)"}
                 return False
         tau_r = json.loads(thresholds.read_text())["routing"]["tau"]

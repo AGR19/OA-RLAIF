@@ -301,3 +301,17 @@ def test_upload_goes_to_the_new_private_repo_with_every_arm(monkeypatch, tmp_pat
     assert repo == "ns/oa-rlaif-dm-harness-results" and create["private"] and create["repo_type"] == "dataset"
     assert upload["private"] and upload["allow_patterns"] == push_results.PATTERNS and upload["folder_path"] == str(out)
     assert b"9-jah-all-merged-agent-fitted" in card["path_or_fileobj"] and b"Three arms" in card["path_or_fileobj"]
+
+
+def test_progress_line_shows_time_left_and_money(monkeypatch, tmp_path):
+    from dm_harness import run
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    monkeypatch.setenv("FULL_EVAL_FAKE", "lexical")
+    monkeypatch.setenv("FULL_EVAL_TASKS", "cyber__iotsec-uco")
+    monkeypatch.setenv("DM_CAL_N", "20")
+    monkeypatch.delenv("DM_ARMS", raising=False)
+    done, total, left = run.run_left("decider", 0.0)
+    assert done == 0 and total == 3 * 35 + 20 and left > 0  # three arms on the task, and the calibration sample
+    line = run.progress_line("decider", "decider · cyber__iotsec-uco", 10, 35, 5.0, schedule.Budget(450.0))
+    assert "10/35 classes" in line and "ETA 0:00:05" in line and "spent of $450" in line and "at the end" in line
