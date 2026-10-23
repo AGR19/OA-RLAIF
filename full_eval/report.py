@@ -245,8 +245,7 @@ def table_pairs(results: dict) -> list:
                 rows.append((f"{name} · {label(tag)}",
                              [sum((p.get("topk") or {}).get("classes_scored", 0) for p in pairs), ceiling,
                               *[mean([topk_cell(p, k, m) for p in pairs])
-                                for k, m in ((1, "Precision"), (1, "Recall"), (1, "F-measure"), (3, "F-measure"),
-                                             (5, "F-measure"))]]))
+                                for k in TOP_K for m in ("Precision", "Recall", "F-measure")]]))
     return rows
 
 
@@ -395,9 +394,10 @@ def tables_reference(results: dict, price: float | None, plan: dict) -> tuple[di
                      table6(results), [pct] * 9 + ["{:,}"], higher=[True] * 9 + [None]),
         "t3": render(f"Table 3. {TOP_K_NAME} per pair (MultiFarm, DH and DH-ML: the mean over their pairs). Ceiling = "
                      "share of scored classes whose partner was among the retrieved candidates (no method can exceed "
-                     "it); P, R, F at k ×1.", ["Classes scored", "Ceiling", "P@1", "R@1", "F@1", "F@3", "F@5"],
-                     table_pairs(results), ["{:,}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}"],
-                     higher=[None, None, True, True, True, True, True]),
+                     "it); P, R, F at k ×1.",
+                     ["Classes scored", "Ceiling"] + [f"{m[0]}@{k}" for k in TOP_K for m in ("Precision", "Recall",
+                                                                                              "F-measure")],
+                     table_pairs(results), ["{:,}", "{:.3f}"] + ["{:.3f}"] * 9, higher=[None, None] + [True] * 9),
         "t4": render("Table 4. What the methods did (every task the method ran, weighted by classes). Model calls, "
                      "extra commands (beyond the scripted om profile / om show / om candidates and the submit), format "
                      "errors and seconds: the agent only; thinking: the thinking-on methods only. Cut at token limit = "

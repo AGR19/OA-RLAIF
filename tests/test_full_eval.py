@@ -182,6 +182,8 @@ def test_reference_scope_report_has_topk_tables_only(tmp_path, monkeypatch):
     assert set(built["tables"]) == {"t1", "t2", "t3", "t4", "t5"} and built["scope"] == "reference"
     assert "F-Measure" not in md and "Recall+" not in md and "OAEI score" not in md  # the OAEI 2026 track is named
     assert "Top-k evaluation (k = 1, 3, 5)" in md and "All merged + mini-SWE-agent, thinking on" in md
+    pair_table = built["tables"]["t3"]  # per pair: all nine Top-k columns
+    assert "| Classes scored | Ceiling | P@1 | R@1 | F@1 | P@3 | R@3 | F@3 | P@5 | R@5 | F@5 |" in pair_table
 
 
 def test_full_alignment_scores_every_reference_link():
