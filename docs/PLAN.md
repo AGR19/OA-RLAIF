@@ -322,3 +322,77 @@ evaluation. That would cost about $4,400 (about 184 h) on 4 × B300. The user de
 - **Results:** `results/<task>/<method folder>/` (for example `results/anatomy__mouse-human/4-opsd-grpo/`). Each
   folder has one `alignment.rdf` and SSSOM file per method and pair. All of them are uploaded as separate files.
 - **The complete evaluation is still available:** `FULL_EVAL_SCOPE=all FULL_EVAL_METHODS=all`.
+
+## Decision-model harness: pplx-decider controls the All-merged agent through JevAgentHarness (added 2026-10-23; the text above is unchanged)
+
+Branch `dm_harness` (from `full-eval` at `4007d81`). JevAgentHarness (MIT, `third_party/JevAgentHarness`, upstream
+`f293219`) is a local OpenAI-compatible proxy: before each agent step a decision model answers one question, "is the
+next step `routine` or `hard`?", and the step goes to the strong tier if p(hard) ≥ τ, else to the fast tier (paper:
+Zhu et al. 2026, arXiv:2610.21412).
+
+**The user's decisions:**
+
+| Decision | Choice |
+|---|---|
+| Worker | All merged: `gonibeed/oa-rlaif-e4b-all-combined-model-safetensors` on vLLM (the model of the full evaluation's agent row) |
+| Decision model | `perplexity-ai/pplx-decider-v1.2` (Apache-2.0, 52 GB BF16, Qwen3.8-27B + readout head), self-hosted behind `POST /v1/systemone` |
+| Control | Option 1, route + guard (below) |
+| Thresholds | Fixed in advance: routing τ = 0.75, guard τ = 0.5 (the repo's defaults). No reference answer is used to choose them |
+| Classes | All 299,961 per arm (every class with a reference partner, plus the complete SNOMED CT → ICD-11 map), Top-k evaluation (k = 1, 3, 5); no held-out view |
+| Runs | Only the two arms below. No SFT, OPSD or GRPO runs |
+| Comparison | The All-merged rows of `gonibeed/oa-rlaif-full-eval-results`, read only |
+| Results | A new private repo, `gonibeed/oa-rlaif-dm-harness-results` |
+| Hardware | 4 × B200 on Vast.ai |
+
+**Why the paper's argument suggests fixed thresholds are enough here:** the paper's −21.5-point loss with a fixed τ
+came from the decision model *replacing* the LLM's choices. In route + guard it mostly advises: routing chooses thinking
+on or off, and the guard asks Gemma to retry. Its pick is used only when Gemma's answer is still invalid, and an invalid
+answer scores 0 anyway.
+
+**Arm A, pplx-decider alone.** For each class, one `choice` question: the state is the source card, and the options
+are the candidates (name, synonyms, parents) plus NONE. Its pick is the answer, and Top-k ranks the remaining
+candidates by its probabilities.
+
+**Arm B, JevAgentHarness + pplx-decider + All merged + mini-SWE-agent.**
+- The `om_agent` harness unchanged, with model `jah-auto` → the proxy.
+- The proxy's upstream is vLLM with the All-merged weights. Strong tier = thinking on; fast tier = thinking off (the
+  same weights; the tier's `extra` sets `chat_template_kwargs`).
+- The decision model is the System-One server, τ = 0.75.
+- Our own decision point, the NONE/invalid guard (paper, GUARD mode), in `dm_harness/harness.py`. The proxy's finish
+  check needs native tool calls, so it cannot see our text-based submissions.
+  1. When Gemma submits NONE, or ends without a valid submission, pplx-decider answers the candidate question.
+  2. If a candidate has p ≥ 0.5, the class is redone on the strong tier (`jah-strong`), with a note naming that
+     candidate; Gemma decides again.
+  3. If the redo is still invalid, pplx-decider's pick is the answer.
+
+**Report** (against `oa-rlaif-full-eval-results`' All merged and All merged + agent rows):
+1. Top-1 F per dataset.
+2. P, R and F at k = 1, 3, 5.
+3. Per pair, with the ceiling.
+4. Behaviour: NONE, invalid, the guard's outcomes, the routing share, decision latency.
+5. The SNOMED CT → ICD-11 map.
+6. Sensitivity, from the logged probabilities (no rerun): what pplx-decider answering alone above τ would give (the
+   paper's CASCADE).
+7. Units and money.
+
+SNOMED CT → ICD-11 and Cybersecurity are shown first.
+
+**Cost (4 × B200; the dry run measures the real speeds):**
+
+| Step | Time |
+|---|---:|
+| Setup and downloads | ~0.8 h |
+| Arm A | ~1.4 h |
+| Arm B | ~3 h |
+| Report and upload | ~0.2 h |
+| **Total** | **~5.5 h** |
+
+That is $110 at $20/h, $165 at $30/h and $225 at $41/h. The default cap is $250.
+
+**Files:**
+- `dm_harness/`: `decider_server.py`, `questions.py`, `base_run.py`, `harness.py`, `harness_run.py`, `jah_config.py`,
+  `fake_upstream.py`, `run.py`, `report.py`, `pull_reference.py`, `push_results.py`, `setup_decider.sh`,
+  `vast_dm_harness.sh`, `README.md`.
+- `tests/test_dm_harness.py`.
+- Mac rehearsal: a lexical stand-in decider and Gemma, with the real proxy.
+- The tables are shown to the user before any push.

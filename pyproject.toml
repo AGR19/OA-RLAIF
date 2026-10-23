@@ -37,7 +37,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "third_party/mini-swe-agent/src"]
+pythonpath = ["src", "third_party/mini-swe-agent/src", "third_party/JevAgentHarness/src"]
 markers = ["raw: needs the raw ontology folder (skipped when OA_RAW_DIR is absent)"]
 
 [tool.ruff]

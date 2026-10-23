@@ -92,6 +92,8 @@ def decide(episode: dict, row: dict) -> dict:
         thought, error = row.get("thought", ""), "" if decision != "invalid" else row.get("exit") or ""
         stats.update(thinking_chars=row.get("thinking_chars", 0), answer_in_thinking=row.get("answer_in_thinking", 0) > 0,
                      truncated=any(t.get("finish_reason") == "length" for t in row["turns"]))
+        if row.get("guard"):  # dm_harness: the NONE/invalid guard's outcome for this class
+            stats["guard"] = row["guard"].get("outcome")
     else:
         d = parse_decision(row["reply"], episode)
         decision = "invalid" if not d.valid else "NONE" if d.choice == "NONE" else "match"
@@ -108,7 +110,10 @@ def decide(episode: dict, row: dict) -> dict:
             "target_codes": [card_field(cards.get(t, ""), "codes") for t in targets],
             "relation": relation, "confidence": confidence, "thought": thought, "error": error,
             "candidates": [c["iri"] for c in episode["candidates"]],
-            "ranking": episode.get("ranking") or [c["iri"] for c in episode["candidates"]], "stats": stats}
+            # ranks 2-5 of the Top-k evaluation: the reply's own order when it has one (dm_harness: the decision
+            # model's probabilities), else the retrieval order
+            "ranking": row.get("ranking") or episode.get("ranking") or [c["iri"] for c in episode["candidates"]],
+            "stats": stats}
 
 
 def ranked_answers(rec: dict) -> list[str]:
@@ -198,7 +203,9 @@ def behaviour(records: list[dict], tag: str) -> dict:
            "prompt_tokens_per_class": mean("prompt_tokens"), "completion_tokens_per_class": mean("completion_tokens")}
     if any("truncated" in s for s in stats):  # replies cut at the token limit (counted as invalid when unparsable)
         out["truncated"] = sum(bool(s.get("truncated")) for s in stats) / n
-    if m.think:
+    if any(s.get("guard") for s in stats):  # dm_harness: how often the NONE/invalid guard acted, and what came of it
+        out["guard"] = dict(Counter(s["guard"] for s in stats if s.get("guard")).most_common())
+    if m.think or any(s.get("thinking_chars") for s in stats):  # dm_harness routes some steps to thinking on
         out.update(thinking_chars_per_class=mean("thinking_chars"),
                    answer_in_thinking=sum(bool(s.get("answer_in_thinking")) for s in stats) / n,
                    no_thinking=sum(not s.get("thinking_chars") for s in stats) / n)

@@ -245,7 +245,11 @@ class Matcher:
         (task_dir / "episode.json").write_text(json.dumps(public_episode(episode)))
         return task_dir
 
-    def run_episode(self, episode: dict, on_message=None, approve=None) -> dict:
+    def run_episode(self, episode: dict, on_message=None, approve=None, model_name: str | None = None,
+                    model_kwargs: dict | None = None, note: str = "") -> dict:
+        """One class. model_name / model_kwargs override this Matcher's model for this call (dm_harness: the
+        JevAgentHarness model names and a per-class session id); note is added to the task text (dm_harness: the
+        decision model's hint when a step is redone)."""
         import shutil
 
         from oa_rlaif.eval.agent_eval import make_environment, parse_submission
@@ -258,10 +262,15 @@ class Matcher:
                     ("inspect the source entity.", f"om show {src}"),
                     ("retrieve candidate targets.", f"om candidates {src} --k {k}")]
         env = make_environment(self.sandbox, task_dir, self.cfg)
-        model = self.Model(**self.model_cfg)
+        model_cfg = self.model_cfg
+        if model_name or model_kwargs:
+            model_cfg = {**model_cfg, "model_kwargs": {**model_cfg["model_kwargs"], **(model_kwargs or {})}}
+            if model_name:
+                model_cfg["model_name"] = f"openai/{model_name}"
+        model = self.Model(**model_cfg)
         agent = self.Agent(model, env, scripted=scripted, on_message=on_message, approve=approve, **self.agent_cfg)
         try:
-            outcome = agent.run(task=agent_task(episode))
+            outcome = agent.run(task=agent_task(episode) + (f"\n\n{note}" if note else ""))
         except Exception as error:  # noqa: BLE001 (one class failing must not stop the others)
             outcome = {"exit_status": f"error: {type(error).__name__}: {error}"[:300], "submission": ""}
         finally:

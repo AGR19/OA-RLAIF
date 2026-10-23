@@ -16,6 +16,7 @@ __pycache__/
 third_party/*
 !third_party/README.md
 !third_party/mini-swe-agent/
+!third_party/JevAgentHarness/
 *.sqlite
 *.npz
 *.npy

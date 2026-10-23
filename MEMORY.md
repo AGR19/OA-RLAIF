@@ -470,3 +470,23 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - `FULL_EVAL_RERUN=base,sdft,grpo` runs those methods again and reuses the other methods' finished `scores.json` from HF.
 - **Estimate before the rerun** (average over 10 datasets): GRPO 69.0 → at most about 70.7, OPSD 67.1 → at most about 74.0, base 44.3 → at most about 78.3. The cut-off classes are probably the harder ones, so the true values are likely lower.
 - **Correction told to the user:** with min(k, |R_c|), Precision@k can fall as k grows when a class has several partners (IoTSec). Recall cannot fall.
+
+## 2026-10-23 — Branch `dm_harness`: pplx-decider controls the All-merged agent through JevAgentHarness
+- **User:** "use decision model to control our agent harness based on jevagentharness to get fast and accurate snowmed to icd 11 maps also cybersec maps".
+- **Branch:** `dm_harness` from `full-eval` at `4007d81`.
+- **JevAgentHarness:** MIT, vendored in `third_party/JevAgentHarness`, upstream `f293219`. It is an OpenAI-compatible proxy: before each agent step a decision model answers "routine or hard?", and p(hard) ≥ τ sends the step to the strong tier.
+- **The user's decisions:**
+  - **Worker:** All-merged safetensors on vLLM, not the OPSD→GRPO GGUF the user first named.
+  - **Control:** Option 1, route + guard. Routing sends hard steps to thinking on and routine steps to thinking off, on the same weights.
+  - **Guard:** our own GUARD decision point. NONE with p(best candidate) ≥ 0.5 → redo on `jah-strong` with a hint. Invalid → redo on the strong tier → still invalid → pplx-decider's pick.
+  - **Thresholds:** fixed in advance (routing 0.75, guard 0.5).
+  - **Results:** a new private repo, `oa-rlaif-dm-harness-results`.
+  - **Scope:** 4 × B200; only arms A (decider alone) and B (harness); no SFT, OPSD or GRPO runs. 299,961 classes per arm, Top-k.
+- **The paper's fixed-τ loss:** fitted τ lost 0 points and a fixed 0.5 lost 21.5 (§7.2). That loss comes from letting the decision model replace the LLM's choice. In Option 1 it mostly advises, so fixed τ is acceptable. Table 8 shows CASCADE at fixed τ values from the logged probabilities, without a rerun.
+- **Facts found:**
+  - The proxy's finish check needs native tool calls, so it can't see our text-based `om submit`. That's why the guard lives in `dm_harness/harness.py`.
+  - The proxy drops the client's `chat_template_kwargs`; each tier's `extra` sets thinking on or off.
+  - The session is the request's `user` field (we set the episode id).
+  - pplx-decider is not vLLM-compatible: noncausal attention plus a readout head. It needs `.venv-decider` (Python 3.12).
+  - Its request schema is the System-One format minus the `model` key, which the server strips.
+  - macOS hides the venv's `.pth` files, and Python 3.11.16 skips them. So the proxy's source is put on PYTHONPATH and added to pytest's `pythonpath`.
