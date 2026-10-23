@@ -1,17 +1,22 @@
-"""The decision-model run, both arms, resumable, within the money cap.
+"""The decision-model run, the three arms, resumable, within the money cap.
 
     python -m dm_harness.run            # shows the plan and what the cap buys, asks once, then runs to the end
     python -m dm_harness.run --yes      # no question
     python -m dm_harness.run --plan     # only the plan
 
-  arm A  "decider"    pplx-decider alone, every GPU (dm_harness.base_run)
-  arm B  "jah-agent"  JevAgentHarness + pplx-decider + All merged + mini-SWE-agent, with the NONE/invalid guard:
-                      the decision model on DM_DECIDER_GPUS, vLLM on DM_GEMMA_GPUS (dm_harness.harness_run)
+  arm A  "decider"        pplx-decider alone, every GPU (dm_harness.base_run)
+  arm B  "jah-agent"      JevAgentHarness + pplx-decider + All merged + mini-SWE-agent, with the NONE/invalid guard;
+                          thresholds fixed before the run (routing 0.75, guard 0.5) (dm_harness.harness_run)
+  arm C  "jah-fit-agent"  the same agent with the thresholds fitted on a calibration sample (dm_harness.calibrate:
+                          shadow runs -> equal-mass bins -> tau* per decision point -> frozen), plus the fitted cascade;
+                          then every class, the sample included (dm_harness.harness_run --tag jah-fit-agent)
+Arms B and C share one stack (the decision model on DM_DECIDER_GPUS, vLLM on DM_GEMMA_GPUS, the proxy); the proxy is
+restarted with the fitted routing tau before arm C.
 
 Every class with a reference partner and the complete SNOMED CT -> ICD-11 map (FULL_EVAL_SCOPE=reference, 299,961 per
 arm; FULL_EVAL_TASKS narrows it), the same episodes as the full evaluation (full_eval.build_episodes, built in the
 background while the GPUs work). A unit (arm, task) runs only if its projected cost fits the money left (DM_BUDGET_USD,
-default $250, setup included); outputs/full_eval/STOP stops the workers between shards when the spend reaches the
+default $450, setup included); outputs/full_eval/STOP stops the workers between shards when the spend reaches the
 cap. Each finished unit is scored at once (full_eval.score), then dm_harness.report writes the tables.
 """
 
@@ -30,14 +35,19 @@ from full_eval.schedule import Budget, decisions, results_dir, root, selected_ta
 from . import stack
 from .jah_config import write as write_jah_config
 
-ARMS = {"decider": "dm_harness.base_run", "jah-agent": "dm_harness.harness_run"}
-DEFAULT_RATES = {"decider": 60.0, "jah-agent": 25.0}  # classes/s on 4 x B200 until a unit of the arm is measured
-LOAD_S = {"decider": 600.0, "jah-agent": 1200.0}       # servers up (download excluded), once per arm
+ARMS = {"decider": "dm_harness.base_run", "jah-agent": "dm_harness.harness_run",
+        "jah-fit-agent": "dm_harness.harness_run"}
+STACK = ("jah-agent", "jah-fit-agent")  # the arms that run through the proxy
+# classes/s on 4 x B200 until a unit of the arm is measured; arm C asks Gemma less often (the fitted cascade), so its
+# assumed rate is arm B's
+DEFAULT_RATES = {"decider": 60.0, "jah-agent": 25.0, "jah-fit-agent": 25.0}
+LOAD_S = {"decider": 600.0, "jah-agent": 1200.0, "jah-fit-agent": 0.0}  # servers up (download excluded), once per stack
+CAL_EPISODES_PER_CLASS = 2.2  # strong + fast shadow runs, and a redo for each NONE / invalid answer
 PY = sys.executable
 
 
 def selected_arms() -> list[str]:
-    arms = [a.strip() for a in os.environ.get("DM_ARMS", "decider,jah-agent").split(",") if a.strip()]
+    arms = [a.strip() for a in os.environ.get("DM_ARMS", "decider,jah-agent,jah-fit-agent").split(",") if a.strip()]
     unknown = [a for a in arms if a not in ARMS]
     if unknown:
         raise SystemExit(f"DM_ARMS: unknown arms {unknown}; choose from {list(ARMS)}")
@@ -73,6 +83,15 @@ def plan(budget: Budget) -> list[dict]:
     for arm in selected_arms():
         r, basis = rate(arm)
         first = True
+        if arm == "jah-fit-agent" and not (root() / "calibration" / "thresholds.json").exists():
+            n = int(os.environ.get("DM_CAL_N", "3000"))
+            seconds = n * CAL_EPISODES_PER_CLASS / rate("jah-agent")[0] + 120  # + the proxy's restart
+            usd = budget.dollars(seconds)
+            fits = usd <= left
+            left -= usd if fits else 0
+            rows.append({"arm": "calibrate", "task": f"sample of {n:,}", "classes": n, "exact": False,
+                         "rate": round(rate("jah-agent")[0], 1), "rate_basis": "agent", "seconds": round(seconds),
+                         "usd": round(usd, 2), "fits": fits})
         for t in task_order(selected_tasks()):
             if done(arm, t.slug):
                 continue
@@ -108,51 +127,81 @@ def watchdog(budget: Budget, stop: threading.Event) -> None:
             return
 
 
-def run_arm(arm: str, budget: Budget, statuses: dict, scorers: list) -> bool:
-    todo = [p for p in plan(budget) if p["arm"] == arm]
-    if not todo:
-        return True
-    procs = []
-    try:
-        if arm == "decider":
-            procs.append(stack.start_decider(stack.gpus()))
-        else:
-            if not stack.fake():
-                from full_eval.models import ready
+def run_units(arm: str, budget: Budget, statuses: dict, scorers: list) -> bool:
+    """Every unit of one arm whose projected cost fits, on servers that are already up."""
+    for p in [p for p in plan(budget) if p["arm"] == arm]:
+        if not p["fits"]:
+            statuses[(arm, p["task"])] = {"status": "not run (money)", "usd": p["usd"]}
+            continue
+        if (root() / "STOP").exists():
+            return False
+        print(f"\n[run] {arm} · {p['task']}: {p['classes']:,} classes", flush=True)
+        started = time.time()
+        extra = ["--tag", arm] if arm in STACK else []
+        code = subprocess.run([PY, "-m", ARMS[arm], "--tasks", p["task"], *extra]).returncode
+        seconds = time.time() - started
+        if code == 3:
+            statuses[(arm, p["task"])] = {"status": "stopped (money); continues on the next run"}
+            return False
+        if code != 0:
+            statuses[(arm, p["task"])] = {"status": f"worker failed (exit {code})"}
+            continue
+        n, _ = decisions(p["task"])
+        record(arm, n, seconds)
+        statuses[(arm, p["task"])] = {"status": "scoring", "seconds": round(seconds),
+                                      "usd": round(budget.dollars(seconds), 2)}
+        log = open(root() / "logs" / f"score_{arm}_{p['task']}.log", "a")
+        scorers.append((subprocess.Popen([PY, "-m", "full_eval.score", arm, p["task"]], stdout=log,
+                                         stderr=subprocess.STDOUT), arm, p["task"]))
+    return True
 
-                while not ready("all_merged"):
-                    print("[run] waiting for the All-merged model (outputs/full_eval/logs/models.log)", flush=True)
-                    time.sleep(30)
-            dec, gem = stack.split_gpus()
-            procs.append(stack.start_decider(dec))
-            procs.append(stack.start_vllm(gem))
-            config = write_jah_config(root() / "jah_config.yaml", root() / "jah_logs")
-            procs.append(stack.start_jah(config))
-        for p in todo:
-            if not p["fits"]:
-                statuses[(arm, p["task"])] = {"status": "not run (money)", "usd": p["usd"]}
-                continue
-            if (root() / "STOP").exists():
-                return False
-            print(f"\n[run] {arm} · {p['task']}: {p['classes']:,} classes", flush=True)
-            started = time.time()
-            code = subprocess.run([PY, "-m", ARMS[arm], "--tasks", p["task"]]).returncode
-            seconds = time.time() - started
-            if code == 3:
-                statuses[(arm, p["task"])] = {"status": "stopped (money); continues on the next run"}
-                return False
-            if code != 0:
-                statuses[(arm, p["task"])] = {"status": f"worker failed (exit {code})"}
-                continue
-            n, _ = decisions(p["task"])
-            record(arm, n, seconds)
-            statuses[(arm, p["task"])] = {"status": "scoring", "seconds": round(seconds), "usd": round(budget.dollars(seconds), 2)}
-            log = open(root() / "logs" / f"score_{arm}_{p['task']}.log", "a")
-            scorers.append((subprocess.Popen([PY, "-m", "full_eval.score", arm, p["task"]], stdout=log,
-                                             stderr=subprocess.STDOUT), arm, p["task"]))
+
+def run_decider(budget: Budget, statuses: dict, scorers: list) -> bool:
+    if not [p for p in plan(budget) if p["arm"] == "decider"]:
         return True
+    proc = stack.start_decider(stack.gpus())
+    try:
+        return run_units("decider", budget, statuses, scorers)
     finally:
-        stack.stop(*reversed(procs))
+        stack.stop(proc)
+
+
+def run_stack(budget: Budget, statuses: dict, scorers: list) -> bool:
+    """Arms B and C on one stack; the calibration and the fit come between them, then the proxy restarts with the
+    fitted routing tau."""
+    arms = [a for a in selected_arms() if a in STACK]
+    if not any(p["arm"] in arms or p["arm"] == "calibrate" for p in plan(budget)):
+        return True
+    if not stack.fake():
+        from full_eval.models import ready
+
+        while not ready("all_merged"):
+            print("[run] waiting for the All-merged model (outputs/full_eval/logs/models.log)", flush=True)
+            time.sleep(30)
+    dec, gem = stack.split_gpus()
+    procs = [stack.start_decider(dec), stack.start_vllm(gem)]
+    jah = stack.start_jah(write_jah_config(root() / "jah_config.yaml", root() / "jah_logs"))
+    try:
+        if "jah-agent" in arms and not run_units("jah-agent", budget, statuses, scorers):
+            return False
+        if "jah-fit-agent" not in arms:
+            return True
+        thresholds = root() / "calibration" / "thresholds.json"
+        if not thresholds.exists():
+            cal = next((p for p in plan(budget) if p["arm"] == "calibrate"), None)
+            if cal is not None and not cal["fits"]:
+                statuses[("calibrate", "sample")] = {"status": "not run (money)"}
+                return False
+            print("\n[run] calibration: shadow runs on the sample, then the fit", flush=True)
+            if subprocess.run([PY, "-m", "dm_harness.calibrate"]).returncode != 0 or not thresholds.exists():
+                statuses[("calibrate", "sample")] = {"status": "calibration failed (see logs)"}
+                return False
+        tau_r = json.loads(thresholds.read_text())["routing"]["tau"]
+        stack.stop(jah)
+        jah = stack.start_jah(write_jah_config(root() / "jah_config.yaml", root() / "jah_logs", fitted_tau=tau_r))
+        return run_units("jah-fit-agent", budget, statuses, scorers)
+    finally:
+        stack.stop(jah, *reversed(procs))
 
 
 def save(statuses: dict, budget: Budget) -> None:
@@ -172,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     (root() / "logs").mkdir(parents=True, exist_ok=True)
     if stack.fake():
         os.environ["FULL_EVAL_FAKE"] = "lexical"  # the money guard's $1/h stand-in price
-    budget = Budget(float(os.environ.get("DM_BUDGET_USD", "250")))
+    budget = Budget(float(os.environ.get("DM_BUDGET_USD", "450")))
     if (root() / "STOP").exists():
         (root() / "STOP").unlink()
     rows = plan(budget)
@@ -185,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     helpers = [subprocess.Popen([PY, "-m", "full_eval.build_episodes"],
                                 stdout=open(root() / "logs" / "episodes.log", "a"), stderr=subprocess.STDOUT)]
-    if "jah-agent" in selected_arms() and not stack.fake():
+    if any(a in STACK for a in selected_arms()) and not stack.fake():  # arms B and C need the All-merged weights
         helpers.append(subprocess.Popen([PY, "-m", "full_eval.models", "all_merged"],
                                         stdout=open(root() / "logs" / "models.log", "a"), stderr=subprocess.STDOUT))
     stop = threading.Event()
@@ -193,10 +242,10 @@ def main(argv: list[str] | None = None) -> int:
     statuses: dict = {}
     scorers: list = []
     try:
-        for arm in selected_arms():
-            if not run_arm(arm, budget, statuses, scorers):
-                break
+        if "decider" not in selected_arms() or run_decider(budget, statuses, scorers):
             save(statuses, budget)
+            run_stack(budget, statuses, scorers)
+        save(statuses, budget)
     finally:
         stop.set()
         for proc, arm, slug in scorers:

@@ -20,8 +20,9 @@ from full_eval.schedule import root
 
 REPO = "oa-rlaif-dm-harness-results"
 PATTERNS = ["dm_report.*", "figures/*", "plan.json", "dm_speed.json", "jah_config.yaml", "results/*/7-pplx-decider/*",
-            "results/*/8-jah-all-merged-agent/*", "replies/decider/*", "replies/jah-agent/*", "jah_logs/*", "logs/*",
-            "progress/*", "episodes/*/manifest.json"]
+            "results/*/8-jah-all-merged-agent/*", "results/*/9-jah-all-merged-agent-fitted/*", "replies/decider/*",
+            "replies/jah-agent/*", "replies/jah-fit-agent/*", "calibration/*", "jah_logs/*", "logs/*", "progress/*",
+            "episodes/*/manifest.json"]
 CARD = """---
 license: other
 license_name: mixed-private
@@ -30,13 +31,17 @@ tags: [ontology-matching, oa-rlaif, decision-model, top-k-evaluation, private]
 # oa-rlaif-dm-harness-results (private)
 
 A decision model controls the OA-RLAIF All-merged Gemma 4 E4B agent (github.com/AGR19/OA-RLAIF, branch
-`dm_harness`, `dm_harness/`). Two arms on every source class with a partner in the reference (no held-out view) and
+`dm_harness`, `dm_harness/`). Three arms on every source class with a partner in the reference (no held-out view) and
 the complete SNOMED CT -> ICD-11 map, scored with the Top-k evaluation (k = 1, 3, 5):
 
 - **7-pplx-decider**: perplexity-ai/pplx-decider-v1.2 alone, one candidate question per class.
 - **8-jah-all-merged-agent**: JevAgentHarness (arXiv:2610.21412) routes each model call of All merged +
   mini-SWE-agent to thinking on (pplx-decider's p(hard) >= 0.75) or off; a NONE or invalid submission is re-checked by
   pplx-decider (tau 0.5) and redone on the strong tier with its hint. Thresholds fixed before the run.
+- **9-jah-all-merged-agent-fitted**: the same stack with the thresholds fitted on a calibration sample by the paper's
+  rule (App. A: equal-mass bins of >= 20, the lowest score from which every higher bin has a non-negative gain), then
+  frozen, plus the cascade (pplx-decider answers alone above its fitted tau). It still aligns every class, the sample
+  included; `calibration/` holds the sample, the shadow runs and `thresholds.json`.
 
 The comparison rows (All merged, All merged + mini-SWE-agent) are read from `oa-rlaif-full-eval-results`, which this
 run never changes. Start with `dm_report.md`. **Licensing:** contains SNOMED CT-derived mappings (affiliate licence)

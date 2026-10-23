@@ -396,3 +396,58 @@ That is $110 at $20/h, $165 at $30/h and $225 at $41/h. The default cap is $250.
 - `tests/test_dm_harness.py`.
 - Mac rehearsal: a lexical stand-in decider and Gemma, with the real proxy.
 - The tables are shown to the user before any push.
+
+### Addendum (2026-10-23, the text above is unchanged): arm C, thresholds fitted on a sample
+
+**The user's decision:** after reading the paper's threshold appendix, the user did not accept fixed thresholds alone
+and asked for a third method beside them: "jevharness + minsweagent + allmerged gemma thinking, custom threshold based
+on samples". The user also asked for every ontology in the results folder, not only SNOMED CT and Cybersecurity, and
+for the alignments to stay complete (299,961 classes, not held out) even with a sample.
+
+**The three methods**, each on all 299,961 classes, against the All-merged rows of `oa-rlaif-full-eval-results`:
+
+| Arm | Tag (folder) | Thresholds |
+|---|---|---|
+| A | `decider` (`7-pplx-decider`) | none: pplx-decider alone |
+| B | `jah-agent` (`8-jah-all-merged-agent`) | fixed in advance: routing 0.75, guard 0.5 |
+| C | `jah-fit-agent` (`9-jah-all-merged-agent-fitted`) | fitted on a calibration sample, then frozen; adds the CASCADE |
+
+**Arm C's procedure** (`dm_harness/calibrate.py`; Zhu et al. 2026, §2.1 and App. A, "Deployed thresholds"):
+1. **Sample.** `DM_CAL_N` = 3,000 scored classes, seed 13, stratified by task, at least 20 per task.
+2. **Shadow runs.** The decision model answers and never acts. Per sample class:
+   - the agent with every step thinking on (`jah-shadow`; the proxy logs p(hard));
+   - the agent with every step thinking off (`jah-fast`);
+   - each NONE or invalid answer redone with the best-candidate hint (`jah-strong`);
+   - pplx-decider's own answer (arm A's reply).
+3. **Fit, per decision point.**
+   - Equal-mass bins of ≥ 20 decisions (at most 10), sorted by the score. A bin edge never splits equal scores.
+   - τ* = the lowest score from which every higher bin has a non-negative mean gain. If no bin qualifies, that
+     decision is never made.
+   - ΔC = the measured GPU cost of one agent step; V = $1 per wrong class.
+
+   | Point | Mode | Score | Gain of firing |
+   |---|---|---|---|
+   | routing | TRIGGER | p(hard) | right(thinking on) − right(thinking off) − ΔC/V |
+   | guard | GUARD | p(best candidate) | right(redo) − right(kept) − ΔC/V |
+   | cascade | CASCADE (Eq. 3) | the decider's confidence | right(decider) − right(LLM policy at τ_r, τ_g) + ΔC/V |
+4. **Freeze.** `calibration/thresholds.json`. The proxy restarts with the model `jah-fit` at τ_r.
+5. **Run.** Arm C aligns every class, the sample included. Report Table 11 also gives arm C without the sample.
+
+**Report additions:** the arm C row in every table; Table 5 (the cascade share and the guard per arm); Table 6
+(routing per arm); Table 10 (the fitted τ with each point's bins and gains); Table 11 (arm C with and without the
+sample). Figure: `docs/figures/dm_harness_overview.svg` / `.png`.
+
+**Cost (4 × B200; the dry run measures the real speeds):**
+
+| Step | Time |
+|---|---:|
+| Setup and downloads | ~0.8 h |
+| Arm A (with loading) | ~1.6 h |
+| Arm B (with loading) | ~3.7 h |
+| Calibration (3,000 × ~2.2 agent episodes, fit, restart) | ~0.1 h |
+| Arm C (the cascade's classes skip Gemma) | ≤ ~3.3 h |
+| Scoring, report and upload | ~0.3 h |
+| **Total** | **~9.8 h** |
+
+That is about $195 at $20/h, $295 at $30/h and $400 at $41/h. The default cap is now **$450**
+(`DM_BUDGET_USD`); a unit that does not fit is not started.

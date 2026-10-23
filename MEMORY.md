@@ -490,3 +490,15 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - pplx-decider is not vLLM-compatible: noncausal attention plus a readout head. It needs `.venv-decider` (Python 3.12).
   - Its request schema is the System-One format minus the `model` key, which the server strips.
   - macOS hides the venv's `.pth` files, and Python 3.11.16 skips them. So the proxy's source is put on PYTHONPATH and added to pytest's `pythonpath`.
+
+## 2026-10-23 — `dm_harness`: arm C, thresholds fitted on a sample (the paper's procedure)
+- **User:** "i am not satisfied with fixed confidence score the paper literallty says custom threshold is better so I want you to add it to our scripts as well." Three methods: pplx-decider alone (A), the harness with fixed τ (B), the harness with τ fitted on samples (C). Every ontology, all 299,961 classes per arm, not held out.
+- **Arm C:** `dm_harness/calibrate.py`. A 3,000-class stratified sample (seed 13); shadow runs (thinking on with p(hard) logged, thinking off, a hinted redo of each NONE/invalid, the decider's answer); equal-mass bins ≥ 20; τ* = the lowest score from which every higher bin has a non-negative gain; frozen. Three points: routing (TRIGGER), guard (GUARD), cascade (CASCADE, Eq. 3).
+- **Arm C still aligns every class,** the sample included. Report Table 11 also shows it without the sample.
+- **Fixes found in the Mac rehearsal:**
+  - A bin edge must not split equal scores, else "score ≥ τ" also acts on a losing bin.
+  - The gain's sign is read before rounding, since ΔC/V is a fraction of a cent.
+  - Table 11 aggregates with `full_eval.report.topk_value`, the same as Tables 1–3.
+- **Budget:** the default cap is now $450 (`DM_BUDGET_USD`; was $250). Expected ~9.8 h on 4 × B200 (the plan's own estimate with server loads, all 13 tasks × 3 arms): ~$195 at $20/h, ~$295 at $30/h, ~$400 at $41/h.
+- **Correction to the entry above:** the proxy's session is NOT the request's `user` field. It comes from the URL `/s/<session>/v1` (or the `x-jah-session` header); `dm_harness/harness.py` sets the URL per class.
+- **Pipeline check before the push (2026-10-23):** every HF source exists (pplx-decider 52.2 GB with requirements and source/; All-merged safetensors 15.9 GB, private; the comparison rows for 13/13 tasks; the inputs, private). The upload list now includes arm C and `calibration/` (it was missing); the All-merged download now starts for arm C alone too. Tests cover the cascade row through scoring and the upload (stand-in HfApi).

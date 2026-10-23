@@ -17,6 +17,8 @@ third_party/*
 !third_party/README.md
 !third_party/mini-swe-agent/
 !third_party/JevAgentHarness/
+# the JevAgentHarness paper's PDF (arXiv:2610.21412): the licensed-data gate tracks no PDF
+third_party/JevAgentHarness/paper/*.pdf
 *.sqlite
 *.npz
 *.npy

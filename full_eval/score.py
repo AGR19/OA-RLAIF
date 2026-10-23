@@ -94,6 +94,8 @@ def decide(episode: dict, row: dict) -> dict:
                      truncated=any(t.get("finish_reason") == "length" for t in row["turns"]))
         if row.get("guard"):  # dm_harness: the NONE/invalid guard's outcome for this class
             stats["guard"] = row["guard"].get("outcome")
+        if row.get("cascade"):  # dm_harness arm C: the decision model answered this class alone
+            stats["cascade"] = True
     else:
         d = parse_decision(row["reply"], episode)
         decision = "invalid" if not d.valid else "NONE" if d.choice == "NONE" else "match"
@@ -205,6 +207,8 @@ def behaviour(records: list[dict], tag: str) -> dict:
         out["truncated"] = sum(bool(s.get("truncated")) for s in stats) / n
     if any(s.get("guard") for s in stats):  # dm_harness: how often the NONE/invalid guard acted, and what came of it
         out["guard"] = dict(Counter(s["guard"] for s in stats if s.get("guard")).most_common())
+    if any(s.get("cascade") for s in stats):  # dm_harness arm C: classes the decision model answered alone
+        out["cascade"] = sum(bool(s.get("cascade")) for s in stats) / n
     if m.think or any(s.get("thinking_chars") for s in stats):  # dm_harness routes some steps to thinking on
         out.update(thinking_chars_per_class=mean("thinking_chars"),
                    answer_in_thinking=sum(bool(s.get("answer_in_thinking")) for s in stats) / n,

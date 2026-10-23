@@ -4,19 +4,24 @@
 #   arm A  pplx-decider alone (every GPU)
 #   arm B  JevAgentHarness + pplx-decider + All merged + mini-SWE-agent (route thinking on/off at p(hard) >= 0.75,
 #          the NONE/invalid guard at 0.5; thresholds fixed before the run)
+#   arm C  the same stack with thresholds fitted on a calibration sample (DM_CAL_N, default 3,000) by the paper's rule,
+#          then frozen, plus the cascade; it still aligns every class, the sample included
+# Downloads (once): the raw ontologies and episode inputs, pplx-decider-v1.2 from Hugging Face (52 GB, into
+# outputs/dm_models/, served on this machine's GPUs), the All-merged safetensors (into outputs/full_eval/models/), and
+# the comparison rows of oa-rlaif-full-eval-results (read only).
 # Every class with a partner in the reference and the complete SNOMED CT -> ICD-11 map (299,961 per arm; no held-out
-# view), Top-k evaluation (k = 1, 3, 5), within DM_BUDGET_USD (default $250, setup included). Run it inside tmux.
+# view), Top-k evaluation (k = 1, 3, 5), within DM_BUDGET_USD (default $450, setup included). Run it inside tmux.
 #
-#   dm_harness/vast_dm_harness.sh           setup, inputs, plan (asks once), both arms, report, upload; resumable
+#   dm_harness/vast_dm_harness.sh           setup, inputs, plan (asks once), the three arms, report, upload; resumable
 #   dm_harness/vast_dm_harness.sh --plan    only show the plan and what the money buys
 #   dm_harness/vast_dm_harness.sh --yes     no question
-#   DM_ARMS=decider ...                     one arm only (decider | jah-agent)
+#   DM_ARMS=decider ...                     only some arms (decider, jah-agent, jah-fit-agent)
 #   FULL_EVAL_TASKS=icd__snomed-to-icd11,cyber__iotsec-uco ...   only these tasks
 #
 # Results: the private dataset <you>/oa-rlaif-dm-harness-results (oa-rlaif-full-eval-results is only read).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export DM_BUDGET_USD="${DM_BUDGET_USD:-250}"
+export DM_BUDGET_USD="${DM_BUDGET_USD:-450}"
 export FULL_EVAL_BUDGET_USD="$DM_BUDGET_USD" FULL_EVAL_SCOPE=reference   # the price check shows this cap
 mkdir -p outputs/full_eval/logs
 ngpu="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)"

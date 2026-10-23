@@ -2,6 +2,7 @@
 JevAgentHarness proxy (dm_harness.run starts the decision model, vLLM and the proxy first).
 
     python -m dm_harness.harness_run --tasks icd__snomed-to-icd11,cyber__iotsec-uco
+    python -m dm_harness.harness_run --tag jah-fit-agent --tasks ...   # arm C: the fitted thresholds
 
 Replies: replies/jah-agent/<task>/<shard>.replies.jsonl.gz (the agent-row layout full_eval.score reads, plus the
 guard's record), progress/jah-agent.0.json (timings, and how far the current shard is, for the progress bar). A shard
@@ -23,20 +24,26 @@ from full_eval.build_episodes import read_shard
 from full_eval.infer import write_replies
 from full_eval.schedule import root
 
-from .harness import HarnessMatcher
+from .harness import FittedMatcher, HarnessMatcher
 from .stack import fake
-
-TAG = "jah-agent"
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dm_harness.harness_run")
     ap.add_argument("--tasks", required=True)
+    ap.add_argument("--tag", default="jah-agent", choices=["jah-agent", "jah-fit-agent"])
     args = ap.parse_args(argv)
+    TAG = args.tag
     sandbox = os.environ.get("OA_AGENT_ENV") or ("local" if fake() else "user")
     workers = int(os.environ.get("DM_AGENT_WORKERS", "8" if fake() else "256"))
-    matcher = HarnessMatcher(root() / "agent_tasks" / TAG, workers, sandbox, save_trajectory=False,
-                             keep_task_dirs=False)
+    kw = {"save_trajectory": False, "keep_task_dirs": False}
+    if TAG == "jah-fit-agent":
+        from .calibrate import decider_rows
+
+        thresholds = json.loads((root() / "calibration" / "thresholds.json").read_text())
+        matcher = FittedMatcher(root() / "agent_tasks" / TAG, workers, sandbox, thresholds, **kw)
+    else:
+        matcher = HarnessMatcher(root() / "agent_tasks" / TAG, workers, sandbox, **kw)
     progress = root() / "progress" / f"{TAG}.0.json"
     progress.parent.mkdir(parents=True, exist_ok=True)
     state = json.loads(progress.read_text()) if progress.exists() else {"tasks": {}}
@@ -53,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
             if not (folder / "READY").exists():
                 continue
             shards = sorted(json.loads((folder / "manifest.json").read_text())["shards"])
+            if TAG == "jah-fit-agent":  # the cascade reads pplx-decider's own answers (arm A) for this task
+                matcher.decider_rows = decider_rows(slug)
             out = root() / "replies" / TAG / slug
             out.mkdir(parents=True, exist_ok=True)
             state["task"] = slug

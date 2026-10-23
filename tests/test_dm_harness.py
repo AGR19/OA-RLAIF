@@ -101,7 +101,7 @@ def run_guard(monkeypatch, first: dict, check: dict, redo: dict | None = None) -
     monkeypatch.setattr(Matcher, "run_episode", fake_run)
     monkeypatch.setattr(harness, "decide", lambda ep, url=None: check)
     m = harness.HarnessMatcher.__new__(harness.HarnessMatcher)
-    m.proxy, m.decider_url, m.guard_tau = "http://p", "http://x", 0.5
+    m.proxy, m.decider_url, m.guard_tau, m.route_model, m.suffix = "http://p", "http://x", 0.5, "jah-auto", ""
     return m.run_episode(episode()), calls
 
 
@@ -130,6 +130,8 @@ def test_guard_falls_back_to_the_decision_model_when_the_redo_is_invalid(monkeyp
 def test_new_methods_have_their_own_folders_and_labels():
     assert schedule.folder_name("decider") == "7-pplx-decider"
     assert schedule.folder_name("jah-agent") == "8-jah-all-merged-agent"
+    assert schedule.folder_name("jah-fit-agent") == "9-jah-all-merged-agent-fitted"
+    assert schedule.method("jah-fit-agent").agent and schedule.label("jah-fit-agent") != schedule.label("jah-agent")
     assert schedule.label("decider") == "pplx-decider-v1.2 alone" and "JevAgentHarness" in schedule.label("jah-agent")
     assert schedule.method("jah-agent").agent and not schedule.method("decider").agent
 
@@ -142,6 +144,9 @@ def test_the_first_runs_repo_is_only_read():
     assert pull_reference.PATTERNS == ["results/*/5-all-merged/scores.json",
                                        "results/*/6-all-merged-agent-thinking/scores.json"]
     assert not any("5-all-merged" in p or "6-all-merged" in p for p in push_results.PATTERNS)
+    for arm in ("results/*/7-pplx-decider/*", "results/*/8-jah-all-merged-agent/*",
+                "results/*/9-jah-all-merged-agent-fitted/*", "replies/jah-fit-agent/*", "calibration/*"):
+        assert arm in push_results.PATTERNS  # every arm's results and arm C's thresholds are uploaded
 
 
 def test_plan_runs_only_the_selected_tasks_for_each_arm(monkeypatch, tmp_path):
@@ -153,7 +158,146 @@ def test_plan_runs_only_the_selected_tasks_for_each_arm(monkeypatch, tmp_path):
     monkeypatch.setenv("FULL_EVAL_FAKE", "lexical")
     monkeypatch.setenv("FULL_EVAL_TASKS", "dh,cyber__iotsec-uco")
     monkeypatch.delenv("DM_ARMS", raising=False)
-    rows = run.plan(schedule.Budget(250.0))
-    assert [(r["arm"], r["task"]) for r in rows] == [("decider", "dh"), ("decider", "cyber__iotsec-uco"),
-                                                     ("jah-agent", "dh"), ("jah-agent", "cyber__iotsec-uco")]
+    monkeypatch.setenv("DM_CAL_N", "200")
+    rows = run.plan(schedule.Budget(450.0))
+    assert [(r["arm"], r["task"]) for r in rows] == [
+        ("decider", "dh"), ("decider", "cyber__iotsec-uco"), ("jah-agent", "dh"), ("jah-agent", "cyber__iotsec-uco"),
+        ("calibrate", "sample of 200"), ("jah-fit-agent", "dh"), ("jah-fit-agent", "cyber__iotsec-uco")]
     assert all(r["fits"] for r in rows)
+    # arm C aligns every class of its tasks, the calibration sample included (not a held-out view)
+    assert [r["classes"] for r in rows if r["arm"] == "jah-fit-agent"] == [r["classes"] for r in rows
+                                                                           if r["arm"] == "jah-agent"]
+
+
+def test_threshold_fit_follows_the_papers_rule():
+    """Equal-mass bins of >= 20; tau = the lowest score from which every higher bin has a non-negative gain."""
+    from dm_harness.calibrate import MIN_BIN, fit_threshold
+
+    scores = [i / 100 for i in range(100)]  # 5 bins of 20
+    gains = [-1.0] * 40 + [0.5] * 20 + [-0.1] * 20 + [1.0] * 20  # bin 4 is negative: tau starts at bin 5
+    tau, bins = fit_threshold(scores, gains)
+    assert len(bins) == 5 and all(b["n"] == MIN_BIN for b in bins) and tau == 0.8
+    assert [b["acts"] for b in bins] == [False, False, False, False, True]
+    assert fit_threshold(scores, [1.0] * 100)[0] == 0.0  # every bin pays: always act
+    assert fit_threshold(scores, [1.0] * 80 + [-1.0] * 20)[0] is None  # the top bin loses: never act
+    assert fit_threshold(scores[:19], [1.0] * 19) == (None, [])  # fewer than one bin: no threshold
+    assert fit_threshold(scores, [-1e-5] * 100)[0] is None  # a cost of a fraction of a cent still counts
+    tied = [0.2] * 70 + [0.5 + i / 100 for i in range(30)]  # a bin edge must not split equal scores
+    tau, bins = fit_threshold(tied, [-1.0] * 70 + [1.0] * 30)
+    assert tau == 0.5 and bins[0]["to"] == 0.2 and all(b["from"] > 0.2 for b in bins[1:])
+
+
+def test_fit_writes_frozen_thresholds_from_the_shadow_runs(monkeypatch, tmp_path):
+    from dm_harness import calibrate
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    task = type("T", (), {"slug": "toy", "pair_ids": ["p"]})()
+    monkeypatch.setattr(calibrate, "task_order", lambda ts: [task])
+    monkeypatch.setattr(calibrate, "selected_tasks", lambda: [task])
+    monkeypatch.setattr(calibrate.labels, "partners", lambda t: {"p": {f"s{i}": {"t"} for i in range(40)}})
+    rows, hard = [], {}
+    for i in range(40):  # hard classes (p 0.9): only thinking on is right; routine (p 0.1): both are right
+        strong, fast = ["t"], (["t"] if i < 20 else ["x"])
+        hard[f"e{i}"] = 0.1 if i < 20 else 0.9
+        rows.append({"id": f"e{i}", "pair_id": "p", "source": f"s{i}",
+                     "decider": {"answer": ["x"], "confidence": 0.3, "best_candidate": "C1", "p_best": 0.3},
+                     "strong": {"decision": "match", "answer": strong}, "fast": {"decision": "match", "answer": fast}})
+    monkeypatch.setattr(calibrate, "p_hard", lambda: hard)
+    (calibrate.cal_dir() / "shadow.jsonl").write_text("\n".join(map(__import__("json").dumps, rows)))
+    out = calibrate.fit(0.01)
+    assert out["routing"]["tau"] == 0.9 and out["routing"]["decisions"] == 40  # thinking on only where it pays
+    assert out["guard"]["tau"] is None and out["cascade"]["tau"] is None  # no redo; the decider is never right
+    saved = __import__("json").loads((calibrate.cal_dir() / "thresholds.json").read_text())
+    assert saved["routing"]["tau"] == 0.9 and len(saved["routing"]["bins"]) == 2
+    assert len(__import__("json").loads((calibrate.cal_dir() / "sample_ids.json").read_text())) == 40
+
+
+def test_arm_c_uses_the_fitted_thresholds_and_the_cascade(monkeypatch):
+    from dm_harness import harness
+    from om_agent.test_matching_ai import Matcher
+
+    def th(r, g, c):
+        return {"routing": {"tau": r}, "guard": {"tau": g}, "cascade": {"tau": c}}
+
+    monkeypatch.setattr(Matcher, "__init__", lambda self, *a, **k: None)
+    assert harness.FittedMatcher("o", 1, "local", th(None, 0.5, None)).route_model == "jah-fast"
+    assert harness.FittedMatcher("o", 1, "local", th(0.0, 0.5, None)).route_model == "jah-strong"
+    m = harness.FittedMatcher("o", 1, "local", th(0.62, None, 0.9))
+    assert (m.route_model, m.guard_tau, m.suffix, m.cascade_tau) == ("jah-fit", None, "-fit", 0.9)
+    calls = []
+    monkeypatch.setattr(harness.HarnessMatcher, "run_episode", lambda self, ep, *a, **k: calls.append(ep["id"]) or
+                        {"decision": "NONE", "targets": []})
+    m.decider_rows = {"e1": {"id": "e1", "decision": "match", "targets": ["http://h#2"], "confidence": 0.95}}
+    out = m.run_episode(episode())
+    assert out["targets"] == ["http://h#2"] and out["cascade"] == {"p": 0.95, "tau": 0.9} and calls == []
+    m.decider_rows["e1"]["confidence"] = 0.8  # below tau_c: the agent decides
+    assert m.run_episode(episode())["decision"] == "NONE" and calls == ["e1"]
+
+
+def test_proxy_config_carries_the_shadow_and_fitted_models(tmp_path):
+    from jevagentharness.config import load_config
+
+    from dm_harness.jah_config import write
+
+    cfg = load_config(write(tmp_path / "c.yaml", tmp_path / "logs", fitted_tau=0.62))
+    assert cfg.models["jah-fit"]["tau"] == 0.62 and cfg.models["jah-shadow"]["decisions"]["routing"]["mode"] == "shadow"
+    assert "jah-fit" not in load_config(write(tmp_path / "d.yaml", tmp_path / "logs")).models
+
+
+def test_a_cascade_answer_is_scored_as_arm_cs_row(monkeypatch):
+    """Arm C's cascade returns arm A's reply row; the worker's row_of and full_eval.score must read it as the class's
+    answer (with arm A's probability order for ranks 2-5) and count it as a cascade."""
+    from dm_harness import harness
+    from full_eval.agent_run import row_of
+    from om_agent.test_matching_ai import Matcher
+
+    monkeypatch.setattr(Matcher, "__init__", lambda self, *a, **k: None)
+    ep = episode()
+    answer = questions.read(ep, {"answers": {"match": {"probabilities": {"C1": 0.05, "C2": 0.9, "C3": 0.03,
+                                                                         "NONE": 0.02}}}})
+    m = harness.FittedMatcher("o", 1, "local", {"routing": {"tau": None}, "guard": {"tau": None},
+                                                "cascade": {"tau": 0.8}})
+    m.decider_rows = {"e1": questions.reply_row(ep, answer, 0.1, {"input_tokens": 300})}
+    rec = score.decide(ep, row_of(ep, m.run_episode(ep)))
+    assert (rec["decision"], rec["targets"], rec["stats"]["cascade"]) == ("match", ["http://h#2"], True)
+    assert score.ranked_answers(rec) == ["http://h#2", "http://h#1", "http://h#3"]
+    out = score.behaviour([rec], "jah-fit-agent")
+    assert out["cascade"] == 1.0 and out["match"] == 1.0
+
+
+def test_upload_goes_to_the_new_private_repo_with_every_arm(monkeypatch, tmp_path):
+    """dm_harness.push_results with a stand-in HfApi: a private dataset repo of its own, the three arms' results and
+    arm C's calibration, never the first run's rows."""
+    import huggingface_hub
+
+    from dm_harness import push_results
+    from oa_rlaif.data import hf_push
+
+    monkeypatch.setenv("OA_OUT_DIR", str(tmp_path))
+    out = tmp_path / "full_eval"
+    for f in ["results/dh/7-pplx-decider/scores.json", "results/dh/9-jah-all-merged-agent-fitted/scores.json",
+              "calibration/thresholds.json", "results/dh/5-all-merged/scores.json", "dm_report.md"]:
+        (out / f).parent.mkdir(parents=True, exist_ok=True)
+        (out / f).write_text("{}")
+    calls = []
+
+    class Api:
+        def create_repo(self, repo, **kw):
+            calls.append(("create", repo, kw))
+
+        def repo_info(self, repo, **kw):
+            return type("I", (), {"private": True})()
+
+        def upload_large_folder(self, **kw):
+            calls.append(("upload", kw["repo_id"], kw))
+
+        def upload_file(self, **kw):
+            calls.append(("card", kw["repo_id"], kw))
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", Api)
+    monkeypatch.setattr(hf_push, "namespace", lambda: "ns")
+    assert push_results.main([]) == 0
+    (_, repo, create), (_, _, upload), (_, _, card) = calls
+    assert repo == "ns/oa-rlaif-dm-harness-results" and create["private"] and create["repo_type"] == "dataset"
+    assert upload["private"] and upload["allow_patterns"] == push_results.PATTERNS and upload["folder_path"] == str(out)
+    assert b"9-jah-all-merged-agent-fitted" in card["path_or_fileobj"] and b"Three arms" in card["path_or_fileobj"]

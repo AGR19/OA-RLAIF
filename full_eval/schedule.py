@@ -46,7 +46,8 @@ LABELS = {"base": "Gemma 4 E4B (base)", "sft": "+ SFT", "sdft": "+ OPSD", "grpo"
           "all_merged": "All merged (OPSD → GRPO + SFT)", AGENT: "All merged + mini-SWE-agent",
           # dm_harness/ (branch dm_harness): the decision model alone, and the decision model controlling the agent
           "decider": "pplx-decider-v1.2 alone",
-          "jah-agent": "JevAgentHarness: pplx-decider routes All merged + mini-SWE-agent, with the NONE/invalid guard"}
+          "jah-agent": "JevAgentHarness: pplx-decider routes All merged + mini-SWE-agent, with the NONE/invalid guard",
+          "jah-fit-agent": "JevAgentHarness with thresholds fitted on a calibration sample (routing, guard, cascade)"}
 SMALL_ORDER = ["anatomy__mouse-human", "dh", "dh_multiling", "biodiv", "complex_om__cree-swo", "cyber__iotsec-uco",
                "icd__who-icd10-to-icd11", "multifarm", "biodiv2026"]
 GIANT_ORDER = ["icd__snomed-to-icd11", "bioml__NCIT-DOID", "bioml__SNOMED-FMA", "bioml__SNOMED-NCIT"]
@@ -243,7 +244,8 @@ def project(unit_list: list[tuple[str, str]], budget: Budget, speed: Speed, load
 
 # results/<task>/<method folder>/: one folder per dataset task, one per method inside it, numbered in table order
 FOLDERS = {"base": "1-base", "sft": "2-sft", "sdft": "3-opsd", "grpo": "4-opsd-grpo", "all_merged": "5-all-merged",
-           AGENT: "6-all-merged-agent", "decider": "7-pplx-decider", "jah-agent": "8-jah-all-merged-agent"}
+           AGENT: "6-all-merged-agent", "decider": "7-pplx-decider", "jah-agent": "8-jah-all-merged-agent",
+           "jah-fit-agent": "9-jah-all-merged-agent-fitted"}
 
 
 def folder_name(tag: str) -> str:
