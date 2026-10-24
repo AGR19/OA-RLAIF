@@ -10,10 +10,12 @@
   <you>/oa-rlaif-grpo-data                 -> data/eval/heldout_anatomy.jsonl       } only for the weight check of
   <you>/oa-rlaif-heldout-eval-results      -> outputs/full_eval/earlier/<model>/   } the re-merged OPSD and GRPO
                                              models (the earlier run's replies); never scored or reported
-  <you>/oa-rlaif-full-eval-results         -> outputs/full_eval/results/<task>/<method>/scores.json, only with
-                                             FULL_EVAL_RERUN=<tags>: the methods NOT in that list keep their finished
-                                             results (their units count as done), so only the listed methods run
-                                             again and the report still has every row
+  <you>/oa-rlaif-full-eval-results         -> outputs/full_eval/, only with FULL_EVAL_RERUN=<tags>: a copy of the
+                                             first run without what the listed methods produced and without the
+                                             files rebuilt at the end (rerun_ignore). The other methods' units count
+                                             as done, so only the listed methods run again; the report has every
+                                             row, and full_eval.push_results uploads the whole set to
+                                             <you>/oa-rlaif-fixed-full-eval-results. The first run's repo is only read
 It also writes OA_RAW_DIR and OA_BIOML_DIR to .env and puts the IoTSec -> UCO pair and the profile texts where the
 code expects them.
 """
@@ -43,14 +45,20 @@ def set_env(values: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def reuse_patterns(rerun: list[str]) -> list[str]:
-    """The finished results to download for FULL_EVAL_RERUN: scores.json of every selected method not run again."""
-    from .schedule import METHODS, folder_name, selected_methods
+def rerun_ignore(rerun: list[str]) -> list[str]:
+    """What a rerun does not copy from the first run: everything the rerun methods produced (they run again; their old
+    progress files would also mix the two runs' timings), the files rebuilt at the end, and this box's own logs."""
+    from .schedule import METHODS, folder_name
 
     unknown = [t for t in rerun if t not in METHODS]
     if unknown:
         raise SystemExit(f"FULL_EVAL_RERUN: unknown method tags {unknown}; choose from {METHODS}")
-    return [f"results/*/{folder_name(t)}/scores.json" for t in selected_methods() if t not in rerun]
+    out = ["report.*", "figures/*", "plan.json", "episodes/*", "README.md", ".gitattributes", "logs/setup.log",
+           "logs/inputs.log", "logs/models.log", "logs/episodes.log", "logs/push_results.log"]
+    for t in rerun:
+        out += [f"results/*/{folder_name(t)}/*", f"replies/{t}/*", f"progress/{t}.*", f"logs/infer_{t}_*",
+                f"logs/score_{t}_*", f"verify_{t}.json"]
+    return out
 
 
 def main() -> int:
@@ -84,14 +92,15 @@ def main() -> int:
             print(f"[inputs] no earlier predictions for {tag}: {type(error).__name__}", flush=True)
     rerun = [t.strip() for t in os.environ.get("FULL_EVAL_RERUN", "").split(",") if t.strip()]
     if rerun:
-        from .push_results import REPO
+        from .push_results import REPO, target_repo
         from .schedule import root
 
-        patterns = reuse_patterns(rerun)
-        print(f"[inputs] {ns}/{REPO}: finished results of the methods not run again ({len(patterns)} methods)", flush=True)
-        snapshot_download(f"{ns}/{REPO}", repo_type="dataset", local_dir=str(root()), allow_patterns=patterns)
+        print(f"[inputs] {ns}/{REPO} (read only): the first run without {', '.join(rerun)}; the results go to "
+              f"{ns}/{target_repo()}", flush=True)
+        snapshot_download(f"{ns}/{REPO}", repo_type="dataset", local_dir=str(root()), ignore_patterns=rerun_ignore(rerun),
+                          max_workers=16)
         kept = len(list((root() / "results").glob("*/*/scores.json")))
-        print(f"[inputs] {kept} finished units kept; running again: {', '.join(rerun)}", flush=True)
+        print(f"[inputs] {kept} finished units copied; running again: {', '.join(rerun)}", flush=True)
     missing = [p for p in ("icd/triangulated.jsonl",)
                if not (data_dir() / p).exists()]
     if missing:

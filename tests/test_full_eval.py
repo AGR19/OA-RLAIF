@@ -355,13 +355,34 @@ def test_replies_are_not_cut_at_256_tokens_and_cut_replies_are_counted(monkeypat
     assert score.behaviour([r, done], "grpo")["truncated"] == 0.5
 
 
-def test_rerun_keeps_the_finished_results_of_the_other_methods(monkeypatch):
-    from full_eval.pull_inputs import reuse_patterns
+def test_rerun_copies_the_first_run_without_the_rerun_methods():
+    """The files a rerun copies from the first run (huggingface_hub's own pattern filter): every other method's files,
+    nothing the rerun methods produced, nothing rebuilt at the end."""
+    from huggingface_hub.utils import filter_repo_objects
 
-    for name in ("FULL_EVAL_METHODS", "FULL_EVAL_MODELS", "FULL_EVAL_THINKING"):
-        monkeypatch.delenv(name, raising=False)
-    assert reuse_patterns(["base", "sdft", "grpo"]) == [
-        "results/*/2-sft/scores.json", "results/*/5-all-merged/scores.json",
-        "results/*/6-all-merged-agent-thinking/scores.json"]
+    from full_eval.pull_inputs import rerun_ignore
+
+    files = ["results/anatomy__mouse-human/2-sft/scores.json", "results/multifarm/5-all-merged/pairs/x/alignment.rdf",
+             "results/dh/6-all-merged-agent-thinking/decisions.tsv.gz", "replies/sft/dh/0000.replies.jsonl.gz",
+             "progress/sft.0.json", "logs/infer_sft_0.log", "speed.json",
+             "results/anatomy__mouse-human/1-base/pairs/anatomy__mouse-human/alignment.rdf",
+             "results/icd__snomed-to-icd11/4-opsd-grpo/icd11_snomed_complete.sssom.tsv", "replies/sdft/dh/0000.jsonl.gz",
+             "progress/sdft.2.json", "logs/infer_sdft_0.log", "logs/score_grpo_dh.log", "verify_grpo.json",
+             "report.md", "figures/topk_anatomy.svg", "plan.json", "episodes/dh/manifest.json", "logs/inputs.log"]
+    kept = list(filter_repo_objects(files, ignore_patterns=rerun_ignore(["base", "sdft", "grpo"])))
+    assert kept == files[:7]
     with pytest.raises(SystemExit):
-        reuse_patterns(["opsd"])  # the tag is sdft
+        rerun_ignore(["opsd"])  # the tag is sdft
+
+
+def test_a_rerun_never_writes_to_the_first_runs_repo(monkeypatch):
+    from full_eval import push_results
+
+    monkeypatch.delenv("FULL_EVAL_RESULTS_REPO", raising=False)
+    monkeypatch.delenv("FULL_EVAL_RERUN", raising=False)
+    assert push_results.target_repo() == "oa-rlaif-full-eval-results"
+    monkeypatch.setenv("FULL_EVAL_RERUN", "base,sdft,grpo")
+    assert push_results.target_repo() == "oa-rlaif-fixed-full-eval-results"
+    monkeypatch.setenv("FULL_EVAL_RESULTS_REPO", "oa-rlaif-full-eval-results")
+    with pytest.raises(SystemExit):
+        push_results.target_repo()

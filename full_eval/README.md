@@ -146,8 +146,12 @@ afterwards.**
 Options:
 - `full_eval/vast_full_eval.sh --plan` only shows the plan.
 - `FULL_EVAL_BUDGET_USD=500 full_eval/vast_full_eval.sh` changes the cap.
-- `FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh` runs only those methods again. The other methods
-  keep their finished results, downloaded from the results repo, and the new report has every row.
+- `FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh` runs only those methods again.
+  - **The first run's repo is never changed.** `<you>/oa-rlaif-full-eval-results` is only read; uploading to it
+    during a rerun is refused.
+  - The box copies the first run without those methods' files. Only the three methods run again, and everything goes
+    to a new private dataset, `<you>/oa-rlaif-fixed-full-eval-results`: the other methods' files exactly as they
+    were, the rerun methods' new files, and a report with all six methods.
 - `FULL_EVAL_SCOPE=all FULL_EVAL_METHODS=all FULL_EVAL_BUDGET_USD=4500 full_eval/vast_full_eval.sh` runs the complete
   evaluation (every class, 12 methods, OAEI scores too).
 

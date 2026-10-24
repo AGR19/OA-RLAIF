@@ -470,3 +470,15 @@ Entries are dated and newest last. Each one records what was decided, why, and t
   - `FULL_EVAL_RERUN=base,sdft,grpo` runs those methods again and reuses the other methods' finished `scores.json` from HF.
 - **Estimate before the rerun** (average over 10 datasets): GRPO 69.0 → at most about 70.7, OPSD 67.1 → at most about 74.0, base 44.3 → at most about 78.3. The cut-off classes are probably the harder ones, so the true values are likely lower.
 - **Correction told to the user:** with min(k, |R_c|), Precision@k can fall as k grows when a class has several partners (IoTSec). Recall cannot fall.
+
+## 2026-10-22 — reruns go to a new repo; the first run's results are never changed (user: "make sure … the original data in gonibeed/oa-rlaif-full-eval-results is not changed … create a new hf dataset called fixed-full-eval-results and add the new values on top of already existing ones")
+- **Where a rerun goes:** with `FULL_EVAL_RERUN=<tags>`, `full_eval/push_results.target_repo()` uploads to `{ns}/oa-rlaif-fixed-full-eval-results`. This is the user's name with the project's `oa-rlaif-` prefix. It refuses `oa-rlaif-full-eval-results`, and `FULL_EVAL_RESULTS_REPO` can override the name.
+- **What the box copies first:** `full_eval.pull_inputs` copies the first run from the original repo (read only) except:
+  - the rerun methods' results, replies, progress, logs and weight check;
+  - the files rebuilt at the end (report, figures, plan, episodes).
+- **The new repo then holds:** the other methods' files unchanged, the rerun methods' new files, and a report with all six methods.
+- **Sizes:** the first run is about 0.96 GB; the copied part is about 0.5 GB.
+- **Also found in the first run's replies:** OPSD and OPSD → GRPO cite a "reference alignment" that is not in their prompt.
+  - Rate: Anatomy about 6%; SNOMED → ICD-11 51% (OPSD) and 59% (GRPO).
+  - Cause: the OPSD teacher saw the gold answer as privileged context, and the student copied its citing habit.
+  - These are invented justifications, not leakage. They are a result for the thesis.

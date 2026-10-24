@@ -7,8 +7,9 @@
 #
 #   full_eval/vast_full_eval.sh            setup, inputs, plan (asks once), run, report, upload; resumable
 #   full_eval/vast_full_eval.sh --plan     only show the plan and what the money buys
-#   FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh   run only these methods again; the others keep
-#                                          their finished results from the HF results repo
+#   FULL_EVAL_RERUN=base,sdft,grpo full_eval/vast_full_eval.sh   run only these methods again; the other methods'
+#                                          files are copied from <you>/oa-rlaif-full-eval-results (read only) and
+#                                          everything goes to <you>/oa-rlaif-fixed-full-eval-results
 #
 # Steps: 1 setup (price, packages, Python env, agent sandbox)  2 Hugging Face login  3 inputs from the private repos
 #        4 the run (models rebuilt, episodes built, GPUs, scoring, report)  5 upload of every output to the
@@ -39,6 +40,7 @@ set -a; . ./.env; set +a
 [ "${1:-}" = "--plan" ] && exit 0
 .venv/bin/python -m full_eval.push_results 2>&1 | tee -a outputs/full_eval/logs/push_results.log
 NS="$(.venv/bin/python -c "from oa_rlaif.data.hf_push import namespace; print(namespace())")"
+REPO="$(.venv/bin/python -c "from full_eval.push_results import target_repo; print(target_repo())")"
 echo
-echo "DONE. Report: outputs/full_eval/report.md; everything: https://huggingface.co/datasets/$NS/oa-rlaif-full-eval-results (private)"
+echo "DONE. Report: outputs/full_eval/report.md; everything: https://huggingface.co/datasets/$NS/$REPO (private)"
 echo "NOW DESTROY THE VAST.AI INSTANCE in the console (a stopped instance still bills for its disk)."

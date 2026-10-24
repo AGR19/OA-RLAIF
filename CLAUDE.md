@@ -100,7 +100,9 @@ that runs as it is; **data** / **results** = datasets.
   `-all-combined-model-gguf` (the same, Q4_K_M, converted on HF Jobs).
 - Cards: `python -m oa_rlaif.data.hf_cards [--push]` writes every card (naming, training, the GRPO reward, real
   samples). `oa-rlaif-raw-data` holds the raw ontologies and is never changed by it.
-- Results: `{ns}/oa-rlaif-heldout-eval-results` (the earlier held-out evaluation), `-full-eval-results`.
+- Results: `{ns}/oa-rlaif-heldout-eval-results` (the earlier held-out evaluation), `-full-eval-results` (the
+  first full run, 2026-10-22; never changed again), `-fixed-full-eval-results` (a rerun, `FULL_EVAL_RERUN`: the
+  first run copied, with the rerun methods' outputs and the report replaced).
 
 The user runs `hf auth login` and sets `HF_NAMESPACE`. Never handle the token, and get the user's OK in chat before each push.
 
